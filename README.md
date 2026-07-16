@@ -1,4 +1,4 @@
-# El Cerdo Volador — El sueño de volar
+# Cerdo Icario — El sueño de volar
 
 Juego de plataformas/inercia estilo *Tiny Wings*, hecho en HTML5 Canvas puro
 (sin dependencias, sin build, un solo archivo). Un cerdito aviador con

@@ -1,0 +1,9 @@
+{
+  "name": "cerdo-icario",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cerdo Icario — El sueño de volar",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  }
+}

@@ -3,3 +3,9 @@
 
 # macOS
 .DS_Store
+
+# Dependencies
+node_modules
+
+# Environment variables / secrets
+.env
