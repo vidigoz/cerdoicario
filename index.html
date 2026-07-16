@@ -648,9 +648,13 @@ function baseGroundY(x){
 
 /* --- RAMPAS DE DESPEGUE: una al final de cada bioma (cada 5000m) ---
    Cada rampa está "perfectamente colocada": el terreno se esculpe con una
-   bajada de impulso garantizada justo antes, y una zona de aterrizaje
-   suave justo después, para que nunca quede un muro que bloquee el paso. */
+   bajada de impulso garantizada justo antes. Después de la rampa NO hay
+   suelo: se abre un lago/mar de WATER_SPAN (2000m) que conecta un bioma
+   con el siguiente — hay que volarlo entero, no es cuestión de tiempo.
+   Al final de esa franja de agua, una curva corta reconecta con la
+   tierra firme normal del bioma que sigue. */
 const RAMP_LEN = 340, RAMP_H = 170, APPR_LEN = 700, APPR_DROP = 140, LAND_LEN = 300;
+const WATER_SPAN = 8000; // 2000m * 4px/m: ancho del lago entre biomas
 function rampAt(x){
   // devuelve la posición final R si x está sobre la madera de la rampa
   const n = Math.floor((x + RAMP_LEN) / BIOME_SPAN);
@@ -658,18 +662,27 @@ function rampAt(x){
   const R = n * BIOME_SPAN;
   return (x >= R - RAMP_LEN && x <= R) ? R : 0;
 }
+// ¿x cae dentro de la franja de agua entre rampa y tierra firme del siguiente bioma?
+function waterZoneAt(x){
+  const n = Math.floor((x + RAMP_LEN + APPR_LEN) / BIOME_SPAN);
+  if(n < 1) return null;
+  const R = n * BIOME_SPAN;
+  const waterStart = R, waterEnd = R + WATER_SPAN;
+  return (x >= waterStart && x <= waterEnd) ? {R, waterStart, waterEnd} : null;
+}
+function isWaterAt(x){ return waterZoneAt(x) !== null; }
 function groundY(x){
   const n = Math.floor((x + RAMP_LEN + APPR_LEN) / BIOME_SPAN);
   if(n >= 1){
     const R = n * BIOME_SPAN;
-    const zStart = R - RAMP_LEN - APPR_LEN, zEnd = R + LAND_LEN;
+    const zStart = R - RAMP_LEN - APPR_LEN;
+    const waterEnd = R + WATER_SPAN, zEnd = waterEnd + LAND_LEN;
     if(x >= zStart && x <= zEnd){
-      // anclado exactamente al terreno natural en ambos extremos de la zona:
-      // así nunca hay un salto brusco (muro), solo curvas suaves
       const yStart = baseGroundY(zStart);
       const yValley = yStart + APPR_DROP;   // valle de impulso al pie de la rampa
       const yLip = yValley - RAMP_H;        // punto más alto, al final de la rampa
-      const yLand = baseGroundY(zEnd);      // vuelve a coincidir con el terreno normal
+      const yWater = yLip + RAMP_H*0.55;    // nivel del lago: bien por debajo de la punta de la rampa
+      const yLand = baseGroundY(waterEnd + LAND_LEN); // vuelve a coincidir con el terreno normal
       if(x < R - RAMP_LEN){
         // bajada de aproximación: de yStart a yValley
         const t = (x - zStart) / APPR_LEN;
@@ -678,11 +691,13 @@ function groundY(x){
         // la rampa de madera: curva ascendente cada vez más empinada
         const u = (x - (R - RAMP_LEN)) / RAMP_LEN;
         return yValley - RAMP_H * u * u;
+      } else if(x <= waterEnd){
+        // lago/mar: nivel de agua fijo, no hay suelo sólido en toda esta franja
+        return yWater;
       } else {
-        // zona de aterrizaje: de la punta de la rampa de vuelta al terreno normal,
-        // libre de obstáculos, para que quien no despegó siga rodando sin chocar
-        const t2 = (x - R) / LAND_LEN;
-        return yLip + (yLand - yLip) * (1 - Math.cos(Math.PI*t2)) * 0.5;
+        // curva corta de vuelta a tierra firme del siguiente bioma
+        const t2 = (x - waterEnd) / LAND_LEN;
+        return yWater + (yLand - yWater) * (1 - Math.cos(Math.PI*t2)) * 0.5;
       }
     }
   }
@@ -711,7 +726,7 @@ function spawnItems(seg){
     const type = Math.random() < 0.25 ? 'corn' : 'carrot';
     for(let i=0;i<n;i++){
       const x = start + span*i/(n-1);
-      if(!rampAt(x)) items.push({x:x, y:groundY(x)-12, type:type, got:false, bob:Math.random()*6.28});
+      if(!rampAt(x) && !isWaterAt(x)) items.push({x:x, y:groundY(x)-12, type:type, got:false, bob:Math.random()*6.28});
     }
   } else if(r < 0.72){
     // arco en el aire sobre la cima — premia los vuelos grandes
@@ -723,7 +738,7 @@ function spawnItems(seg){
     for(let i=0;i<n;i++){
       const t = i/(n-1), x = cxp - 70 + 140*t;
       const y = top - hgt - Math.sin(Math.PI*t)*26;
-      if(!rampAt(x)) items.push({x:x, y:y, type:type, got:false, bob:Math.random()*6.28});
+      if(!rampAt(x) && !isWaterAt(x)) items.push({x:x, y:y, type:type, got:false, bob:Math.random()*6.28});
     }
   }
 }
@@ -798,9 +813,7 @@ const pig = {
   energy:100, dead:false, deadT:0, deathCause:'',
   mode:'HILLS', flightT:0, bio:0, landAnnounced:false
 };
-const FLIGHT_TIME = 20;      // segundos que dura cada fase de vuelo
 const FLIGHT_GLIDE = 2.2;    // segundos de planeo automático al abrir las alas, antes de controlar
-const WATER_TIME = 15;       // hasta este segundo el suelo es agua (letal); después, tierra segura
 let obstacles = [], obSpawnT = 0;
 
 let camX = 0, camY = 0, shake = 0, zoom = 1;
@@ -860,6 +873,24 @@ function physics(dt){
       pig.y += 26 * dt;
       pig.vx *= Math.max(0, 1 - 3*dt);
       if(Math.random() < 6*dt) puff(pig.x + (Math.random()-0.5)*16, pig.y-2, 1, '#bfe8ff', 20, -10);
+    } else if(pig.deathCause === 'choque' && pig.mode === 'FLIGHT'){
+      // tras el estrellón cae en caída libre; si aterriza sobre el lago, se hunde igual que ahogándose
+      pig.vy += 900 * dt;
+      pig.x += pig.vx * dt;
+      pig.y += pig.vy * dt;
+      const gy = groundY(pig.x);
+      if(pig.y >= gy - 3){
+        pig.y = gy - 3;
+        if(isWaterAt(pig.x)){
+          pig.deathCause = 'agua-choque'; // mismo hundimiento que 'agua', pero conserva el texto "SE ESTRELLÓ"
+        } else {
+          pig.mode = 'HILLS'; // cayó sobre tierra firme: se queda quieto en el suelo
+        }
+      }
+    } else if(pig.deathCause === 'agua-choque'){
+      pig.y += 26 * dt;
+      pig.vx *= Math.max(0, 1 - 3*dt);
+      if(Math.random() < 6*dt) puff(pig.x + (Math.random()-0.5)*16, pig.y-2, 1, '#bfe8ff', 20, -10);
     }
     if(pig.deadT > 1.5 && state === ST.PLAY) finishRun();
   }
@@ -871,8 +902,8 @@ function physics(dt){
     floatText(pig.x, pig.y-70, '~ '+BIOMES[bNow].name+' ~', PAL.gold, true);
   }
 
-  // --- a los 15s de vuelo, reaparece la tierra firme (aviso único) ---
-  if(pig.mode==='FLIGHT' && !pig.landAnnounced && pig.flightT >= WATER_TIME){
+  // --- al cruzar el lago y acercarse a tierra firme, aviso único ---
+  if(pig.mode==='FLIGHT' && !pig.landAnnounced && !isWaterAt(pig.x)){
     pig.landAnnounced = true;
     floatText(pig.x, pig.y-40, '¡TIERRA A LA VISTA!', PAL.gold, true);
   }
@@ -913,27 +944,28 @@ function physics(dt){
     const ceil = groundY(pig.x) - 470;
     if(pig.y < ceil){ pig.y = ceil; if(pig.vy < 0) pig.vy = 0; }
 
-    // los primeros 15s de vuelo el suelo es AGUA: caer ahí es fin de la partida.
-    // de los 15 a los 20s vuelve a ser tierra firme: caer ahí es un aterrizaje
-    // normal y el juego retoma las colinas con la velocidad que traía.
+    // mientras haya lago debajo (isWaterAt), tocar el agua es fin de la partida.
+    // en cuanto pig.x ya salió de la franja de agua, el "suelo" vuelve a ser
+    // tierra firme normal y tocarlo es un aterrizaje.
     if(pig.y >= groundY(pig.x) - 3 && !pig.dead){
       pig.y = groundY(pig.x) - 3;
-      if(pig.flightT < WATER_TIME){
+      if(isWaterAt(pig.x)){
         triggerDeath('agua');
-        // se queda en modo FLIGHT con flightT < WATER_TIME a propósito:
-        // así el fondo sigue siendo agua (drawWaterTerrain) mientras se ahoga.
+        // se queda en modo FLIGHT a propósito: el fondo sigue siendo agua
+        // (drawWaterTerrain) mientras se ahoga, en vez de volverse sólido.
       } else {
         const s = slopeAt(pig.x), n = Math.sqrt(1+s*s);
         pig.spd = Math.max(0, (pig.vx + pig.vy*s) / n);
         pig.grounded = true;
         pig.mode = 'HILLS';
+        obstacles = [];
         floatText(pig.x, pig.y-30, '¡ATERRIZAJE SEGURO!', PAL.gold, true);
         sfx.land();
       }
     }
 
-    // --- obstáculos: pájaros, ovnis y orbes ---
-    if(pig.flightT < FLIGHT_TIME - 2){
+    // --- obstáculos: pájaros, ovnis y orbes, solo mientras se sobrevuela el lago ---
+    if(isWaterAt(pig.x)){
       obSpawnT -= dt;
       if(obSpawnT <= 0){
         obSpawnT = 0.5 + Math.random()*0.75;
@@ -954,19 +986,12 @@ function physics(dt){
       if(o.type==='ufo')  o.y += Math.sin(o.ph*0.6)*46*dt;
       if(o.type==='orb')  o.y += Math.sin(o.ph*0.8)*20*dt;
       if(o.x < pig.x - 420){ obstacles.splice(i,1); continue; }
-      // ¡chocar con cualquier cosa en el aire es fin de la partida!
+      // ¡chocar con cualquier cosa en el aire es fin de la partida! si iba sobre
+      // el lago, cae y se hunde en el agua igual que si la hubiera tocado directo.
       if(!pig.dead && Math.abs(o.x-pig.x) < 15 && Math.abs(o.y-pig.y) < 13){
         triggerDeath('choque');
-        pig.mode = 'HILLS';
         puff(o.x, o.y, 14, '#ffffff', 120, -60);
       }
-    }
-
-    // fin de la fase de vuelo: vuelven las colinas
-    if(pig.flightT >= FLIGHT_TIME){
-      pig.mode = 'HILLS';
-      obstacles = [];
-      floatText(pig.x, pig.y-46, '¡PREPARA EL ATERRIZAJE!', PAL.cream, true);
     }
 
     pig.best = Math.max(pig.best, pig.x);
@@ -1443,7 +1468,7 @@ function drawObstacles(){
 
 function drawPig(){
   const sx = pig.x - camX, sy = pig.y - camY;
-  const drowning = pig.dead && pig.deathCause === 'agua';
+  const drowning = pig.dead && (pig.deathCause === 'agua' || pig.deathCause === 'agua-choque');
   cx.save();
   cx.translate(px(sx), px(sy-7));
   // ahogándose: cabecea de lado en vez de voltearse panza arriba como en tierra
@@ -1601,11 +1626,11 @@ function drawHUD(){
     const nextR = (Math.floor(pig.x / BIOME_SPAN) + 1) * BIOME_SPAN;
     text('RAMPA EN '+(((nextR-pig.x)/4)|0)+'m', W-8-cx.measureText('RAMPA EN 0000m').width, H-10, 6, PAL.cream, false);
   } else {
-    const left = Math.max(0, FLIGHT_TIME - pig.flightT);
-    text('¡VUELO! '+left.toFixed(0)+'s', W/2, 56, 9, PAL.gold);
-    if(pig.flightT < WATER_TIME){
-      const wleft = (WATER_TIME - pig.flightT).toFixed(0);
-      text('¡AGUA ABAJO! ('+wleft+'s)', W/2, 66, 6, '#6fc7e0');
+    text('¡VUELO!', W/2, 56, 9, PAL.gold);
+    const wz = waterZoneAt(pig.x);
+    if(wz){
+      const wleft = Math.max(0, ((wz.waterEnd - pig.x)/4)|0);
+      text('¡AGUA ABAJO! ('+wleft+'m)', W/2, 66, 6, '#6fc7e0');
     } else {
       text('TIERRA FIRME: PUEDES ATERRIZAR', W/2, 66, 6, PAL.grass);
     }
@@ -1663,7 +1688,7 @@ function drawLaunch(){
 
 function drawDone(dt){
   drawSky(); drawParallax();
-  (pig.deathCause==='agua') ? drawWaterTerrain() : drawTerrain();
+  (pig.deathCause==='agua' || pig.deathCause==='agua-choque') ? drawWaterTerrain() : drawTerrain();
   drawFarmScene(); drawPig(); drawParticles(dt);
   resultT += dt; statT += dt;
   const dist = Math.floor(pig.best/4);
@@ -1672,7 +1697,7 @@ function drawDone(dt){
 
   panel(W/2-150, 30, 300, 148);
   if(pig.deathCause==='agua') text('¡CAYÓ AL AGUA!', W/2, 52, 9, PAL.red);
-  else if(pig.deathCause==='choque') text('¡SE ESTRELLÓ EN PLENO VUELO!', W/2, 52, 8, PAL.red);
+  else if(pig.deathCause==='choque' || pig.deathCause==='agua-choque') text('¡SE ESTRELLÓ EN PLENO VUELO!', W/2, 52, 8, PAL.red);
   else text('¡SE QUEDÓ SIN ENERGÍA!', W/2, 52, 9, PAL.red);
   // contadores animados
   const cDist = Math.floor(dist * Math.min(1, statT/1.2));
@@ -1755,7 +1780,7 @@ function loop(now){
       updateZoom(dt); updateCam(dt);
       withZoom(()=>{
         drawSky(); drawParallax();
-        (pig.mode==='FLIGHT' && pig.flightT < WATER_TIME) ? drawWaterTerrain() : drawTerrain();
+        (pig.mode==='FLIGHT' && isWaterAt(pig.x)) ? drawWaterTerrain() : drawTerrain();
         drawItems();
         drawFarmScene(); drawObstacles(); drawPig(); drawParticles(dt);
       });
