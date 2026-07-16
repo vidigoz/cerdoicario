@@ -1321,60 +1321,70 @@ function drawDistantCastle(x, groundY, scale){
 /* --- AGUA: reemplaza visualmente el terreno durante los primeros 15s de
    cada fase de vuelo. Usa la MISMA altura (groundY) que el terreno real,
    así que la colisión sigue siendo consistente; solo cambia el "disfraz". */
-function drawWaterTerrain(){
-  const mx = viewMX, my = viewMY;
-  const step = 3;
-  const xs = [], ys = [];
-  for(let x = -mx|0; x <= W+mx; x += step){
-    xs.push(x); ys.push(groundY(x+camX) - camY);
-  }
-  // cuerpo de agua con degradado
+// dibuja SOLO el cuerpo de agua + olas en las columnas [i0,i1) de xs/ys (usado
+// tanto por el lago intermedio dentro de drawTerrain como en pantallas que son
+// agua de punta a punta, p.ej. drawDone tras ahogarse)
+function fillWaterRange(xs, ys, i0, i1, my){
+  if(i0 >= i1) return;
+  const step = xs.length>1 ? xs[1]-xs[0] : 3;
   const g = cx.createLinearGradient(0, 0, 0, H+my);
   g.addColorStop(0, '#2a7ab8'); g.addColorStop(0.4, '#1a5a94'); g.addColorStop(1, '#0e3a68');
   cx.fillStyle = g;
   cx.beginPath();
-  cx.moveTo(-mx,H+my);
-  for(let i=0;i<xs.length;i++) cx.lineTo(xs[i], ys[i]);
-  cx.lineTo(W+mx,H+my); cx.closePath(); cx.fill();
-  // cresta de olas animada justo en la superficie
+  cx.moveTo(xs[i0], H+my);
+  for(let i=i0;i<i1;i++) cx.lineTo(xs[i], ys[i]);
+  cx.lineTo(xs[i1-1], H+my); cx.closePath(); cx.fill();
   cx.fillStyle = '#bfe8ff';
-  for(let i=0;i<xs.length;i+=2){
+  for(let i=i0;i<i1;i+=2){
     const wave = Math.sin(xs[i]*0.06 + tGlobal*3) * 2;
     cx.fillRect(xs[i], px(ys[i]+wave), step*2, 2);
   }
   cx.fillStyle = '#6fc7e0';
-  for(let i=0;i<xs.length;i+=2){
+  for(let i=i0;i<i1;i+=2){
     const wave = Math.sin(xs[i]*0.06 + tGlobal*3) * 2;
     cx.fillRect(xs[i], px(ys[i]+wave+2), step*2, 4);
   }
-  // destellos de luz sobre el agua
-  for(let i=0;i<xs.length;i+=14){
+  for(let i=i0;i<i1;i+=14){
     if(((xs[i]*3+ (tGlobal*40|0))|0) % 7 === 0){
       cx.fillStyle = 'rgba(255,255,255,0.55)';
       cx.fillRect(xs[i]+4, px(ys[i]+7), 3, 1);
     }
   }
 }
-
 function drawTerrain(){
   const mx = viewMX, my = viewMY;
   const step = 3;
   // se calcula la altura del terreno UNA sola vez por columna y se reutiliza
   // tanto para el relleno de tierra como para la franja de pasto — antes se
   // calculaba dos veces por columna, lo que pesaba sobre todo en vuelos largos
-  const xs = [], ys = [];
+  const xs = [], ys = [], isWater = [];
   for(let x = -mx|0; x <= W+mx; x += step){
-    xs.push(x); ys.push(groundY(x+camX) - camY);
+    xs.push(x); ys.push(groundY(x+camX) - camY); isWater.push(isWaterAt(x+camX));
   }
 
-  // pasto + tierra con rayas
-  cx.fillStyle = BIO.dirt;
+  // el lago intermedio (si hay tramo en cámara) se dibuja como agua real,
+  // recortado a solo esas columnas — la rampa y la tierra de alrededor
+  // conservan su relleno normal de tierra/pasto
+  let i = 0;
+  while(i < xs.length){
+    if(isWater[i]){
+      let j = i; while(j < xs.length && isWater[j]) j++;
+      fillWaterRange(xs, ys, i, j, my);
+      i = j;
+    } else i++;
+  }
+
+  // pasto + tierra con rayas — recortado a las columnas que NO son agua
+  cx.save();
   cx.beginPath();
-  cx.moveTo(-mx,H+my);
-  for(let i=0;i<xs.length;i++) cx.lineTo(xs[i], ys[i]);
-  cx.lineTo(W+mx,H+my); cx.closePath(); cx.fill();
-  // rayas diagonales de tierra (look 16-bit)
-  cx.save(); cx.clip();
+  let started = false;
+  for(let k=0;k<xs.length;k++){
+    if(isWater[k]) continue;
+    if(!started){ cx.moveTo(xs[k], H+my); started = true; }
+    cx.lineTo(xs[k], ys[k]);
+  }
+  if(started){ cx.lineTo(xs[xs.length-1], H+my); cx.closePath(); cx.fillStyle = BIO.dirt; cx.fill(); }
+  cx.clip();
   cx.fillStyle = BIO.dirtStripe;
   const off = -((camX*0.7) % 32);
   for(let x=off-56-mx; x<W+mx+56; x+=32){
@@ -1383,8 +1393,9 @@ function drawTerrain(){
     cx.restore();
   }
   cx.restore();
-  // franja de pasto (reutiliza las alturas ya calculadas arriba)
+  // franja de pasto (reutiliza las alturas ya calculadas arriba), solo donde no es agua
   for(let i=0;i<xs.length;i++){
+    if(isWater[i]) continue;
     const x = xs[i], wy = ys[i];
     cx.fillStyle = BIO.grass;   cx.fillRect(x, px(wy),   step, 7);
     cx.fillStyle = BIO.grassHi; cx.fillRect(x, px(wy),   step, 2);
@@ -1688,7 +1699,7 @@ function drawLaunch(){
 
 function drawDone(dt){
   drawSky(); drawParallax();
-  (pig.deathCause==='agua' || pig.deathCause==='agua-choque') ? drawWaterTerrain() : drawTerrain();
+  drawTerrain();
   drawFarmScene(); drawPig(); drawParticles(dt);
   resultT += dt; statT += dt;
   const dist = Math.floor(pig.best/4);
@@ -1780,7 +1791,7 @@ function loop(now){
       updateZoom(dt); updateCam(dt);
       withZoom(()=>{
         drawSky(); drawParallax();
-        (pig.mode==='FLIGHT' && isWaterAt(pig.x)) ? drawWaterTerrain() : drawTerrain();
+        drawTerrain();
         drawItems();
         drawFarmScene(); drawObstacles(); drawPig(); drawParticles(dt);
       });
