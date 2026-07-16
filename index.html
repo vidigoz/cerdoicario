@@ -1,0 +1,1717 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Cerdo Icario — El sueño de volar</title>
+<style>
+  @font-face { font-family:'px'; src:local('Courier New'); }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; background:#14101c; overflow:hidden; touch-action:none;
+    overscroll-behavior:none; font-family:'Press Start 2P','px',monospace; }
+  #wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  canvas { image-rendering:pixelated; image-rendering:crisp-edges; background:#000;
+    box-shadow:0 0 0 4px #2b1b2e, 0 0 60px #000; }
+  #nameOverlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(10,6,16,.75); z-index:10; }
+  #nameBox { background:#3a2a44; border:4px solid #f2d16b; padding:24px; text-align:center;
+    color:#f5ecd7; image-rendering:pixelated; }
+  #nameBox h2 { font-size:14px; margin-bottom:14px; color:#f2d16b; letter-spacing:1px; }
+  #nameBox input { font-family:inherit; font-size:14px; padding:10px; width:220px; text-align:center;
+    background:#1c1426; color:#ffd9e2; border:3px solid #8a5a32; outline:none; text-transform:uppercase; }
+  #nameBox button { font-family:inherit; font-size:12px; margin-top:14px; padding:10px 18px; cursor:pointer;
+    background:#b8452c; color:#ffe9c9; border:3px solid #f2d16b; }
+  #nameBox button:hover { background:#d95f38; }
+  /* --- aviso de "gira tu teléfono": el juego es para landscape --- */
+  #rotateHint { display:none; position:fixed; inset:0; z-index:30; background:#14101c;
+    color:#f5ecd7; align-items:center; justify-content:center; text-align:center;
+    padding:28px; font-family:'Press Start 2P','px',monospace; }
+  #rotateHint .icon { font-size:44px; display:block; margin-bottom:18px; animation:spinPhone 1.8s ease-in-out infinite; }
+  #rotateHint p { font-size:11px; line-height:2; color:#f2d16b; }
+  @keyframes spinPhone { 0%,100%{ transform:rotate(0deg); } 50%{ transform:rotate(-90deg); } }
+  /* solo en dispositivos táctiles reales (celular/tablet); nunca en computadora,
+     aunque la ventana del navegador esté angosta o en forma "vertical" */
+  @media (orientation: portrait) and (hover: none) and (pointer: coarse) {
+    #wrap { display:none; }
+    #rotateHint { display:flex; }
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="480" height="270"></canvas></div>
+
+<div id="rotateHint"><div>
+  <span class="icon">📱</span>
+  <p>GIRA TU TELÉFONO<br>PARA JUGAR<br>EN HORIZONTAL</p>
+</div></div>
+
+<div id="nameOverlay">
+  <div id="nameBox">
+    <h2>NOMBRE DEL LANZADOR</h2>
+    <input id="nameInput" maxlength="10" placeholder="SIR CERDO">
+    <br>
+    <button id="nameOk">¡AL CATAPULTAZO!</button>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   EL GRAN LANZACERDOS — Torneo Real del Porquero
+   Juego estilo Tiny Wings, 16 bits, colinas procedurales.
+   Mantén presionado para que el cerdo PIQUE hacia abajo y gane
+   velocidad en las bajadas. Suelta en las cimas para VOLAR.
+   ===================================================================== */
+'use strict';
+
+const W = 480, H = 270;
+const cv = document.getElementById('game');
+const cx = cv.getContext('2d');
+cx.imageSmoothingEnabled = false;
+
+/* ---------- escalado: entero en pantallas grandes, fraccional en celulares ---------- */
+function fit(){
+  const availW = innerWidth, availH = innerHeight;
+  const fracScale = Math.min(availW / W, availH / H);
+  const intScale = Math.max(1, Math.floor(fracScale));
+  // en pantallas chicas (celular en landscape) el escalado entero suele dejar
+  // franjas negras enormes; ahí preferimos llenar la pantalla aunque el pixel
+  // art no caiga en múltiplos exactos. En pantallas grandes, escala entera nítida.
+  const isSmallScreen = Math.min(availW, availH) < 620;
+  const s = (isSmallScreen || intScale < 1) ? fracScale : intScale;
+  cv.style.width  = (W * s) + 'px';
+  cv.style.height = (H * s) + 'px';
+}
+addEventListener('resize', fit);
+addEventListener('orientationchange', ()=>setTimeout(fit, 100));
+fit();
+
+/* =====================================================================
+   PALETA 16-BIT  (atardecer medieval)
+   ===================================================================== */
+const PAL = {
+  skyTop:'#2e3b8f', skyMid:'#7a4fa3', skyLow:'#e0745a', skyHrz:'#f4b860',
+  sun:'#ffe08a', sunCore:'#fff4c8',
+  mtnFar:'#4a3a6e', mtnNear:'#5f4470', castle:'#3a2a52', castleFar:'#4a3a63',
+  plain:'#8fcf7a', plainEdge:'#5a9a4a', plainShade:'#79bf68',
+  hillBack:'#4f7a4a', grass:'#7dbf5a', grassHi:'#a3d977', grassDk:'#5a9143',
+  dirt:'#8a5a32', dirtDk:'#5c3a1e', dirtStripe:'#6e4626',
+  outline:'#2b1b2e',
+  pink:'#f2909e', pinkDk:'#c95f78', pinkHi:'#ffc2cb',
+  gold:'#f2d16b', cream:'#f5ecd7', red:'#b8452c',
+  carrot:'#e8862e', carrotDk:'#b85c1a', leaf:'#3e8948', leafDk:'#265c33',
+  corn:'#f4d03f', cornDk:'#c9a227', husk:'#57a04b',
+  wood:'#8a5a32', woodDk:'#5c3a1e',
+  cloud:'#f7d9c4'
+};
+
+
+/* =====================================================================
+   BIOMAS — cada 5000m el mundo cambia; tras el 10º, el ciclo se repite
+   ===================================================================== */
+const BIOMES = [
+ {name:'PRADERA',   sky:['#2e3b8f','#7a4fa3','#e0745a','#f4b860'], grass:'#7dbf5a', grassHi:'#a3d977', grassDk:'#5a9143', dirt:'#8a5a32', dirtStripe:'#6e4626', plain:'#8fcf7a', plainEdge:'#5a9a4a', plainShade:'#79bf68', tree:'#265c33', treeHi:'#3e8948'},
+ {name:'PANTANO',   sky:['#26403a','#3f5f4a','#7d9a5a','#b8c27a'], grass:'#6a8f4a', grassHi:'#8aab60', grassDk:'#4a6b36', dirt:'#5c4a32', dirtStripe:'#4a3a26', plain:'#5f7d4f', plainEdge:'#405a38', plainShade:'#526e45', tree:'#2e4a34', treeHi:'#44684a'},
+ {name:'BOSQUE OSCURO', sky:['#141a33','#2a2f52','#4a4270','#6e5a8a'], grass:'#3f6b3a', grassHi:'#548a4c', grassDk:'#2c4d29', dirt:'#4a3a2e', dirtStripe:'#3a2d24', plain:'#3a5c38', plainEdge:'#28422a', plainShade:'#325032', tree:'#16301c', treeHi:'#274a2c'},
+ {name:'MONTAÑA',   sky:['#3a5a8f','#6a86ab','#a5b6c9','#d9c9a8'], grass:'#8aa06a', grassHi:'#a8bd85', grassDk:'#6b8050', dirt:'#7a7a80', dirtStripe:'#62626a', plain:'#93a888', plainEdge:'#6a8060', plainShade:'#84997a', tree:'#3a5240', treeHi:'#52705a'},
+ {name:'NIEVE',     sky:['#4a5f9e','#7a8fc2','#b8c6e0','#ffd9e0'], grass:'#e8f0f8', grassHi:'#ffffff', grassDk:'#b8c8dd', dirt:'#8a9ab0', dirtStripe:'#74849a', plain:'#d0dcea', plainEdge:'#9fb2c8', plainShade:'#bfcede', tree:'#3a5248', treeHi:'#547268'},
+ {name:'DESIERTO',  sky:['#7a4fa3','#c26a52','#e89a4a','#ffd070'], grass:'#e8c878', grassHi:'#f7dfa0', grassDk:'#c2a258', dirt:'#b08850', dirtStripe:'#96703e', plain:'#d9b878', plainEdge:'#ad8f56', plainShade:'#c9a968', tree:'#6a7a3a', treeHi:'#8a9a50'},
+ {name:'VOLCÁN',    sky:['#1a0f1e','#4a1a26','#8f2e2a','#e85020'], grass:'#5a4a48', grassHi:'#78615c', grassDk:'#42342f', dirt:'#33262a', dirtStripe:'#e85020', plain:'#4a3a3e', plainEdge:'#33262a', plainShade:'#42323a', tree:'#33262a', treeHi:'#5a4048'},
+ {name:'COSTA',     sky:['#2a7ab8','#4aa0d0','#8fd0e8','#ffe8b8'], grass:'#f2dfa8', grassHi:'#fff2cc', grassDk:'#d0bc85', dirt:'#c9a978', dirtStripe:'#ab8c5e', plain:'#3a90c2', plainEdge:'#2a6e9a', plainShade:'#3382b2', tree:'#2e7a52', treeHi:'#42a06a'},
+ {name:'RUINAS',    sky:['#2e1a4a','#5c3a7a','#8f5a8a','#c9856a'], grass:'#8a80a0', grassHi:'#a89cc0', grassDk:'#6a6282', dirt:'#5a5266', dirtStripe:'#484152', plain:'#7a7090', plainEdge:'#585070', plainShade:'#6c6482', tree:'#3a3252', treeHi:'#544a72'},
+ {name:'TIERRAS MÍSTICAS', sky:['#0f0f2e','#2a1a52','#5c2a7a','#9a4a9a'], grass:'#b08fd0', grassHi:'#d0b2e8', grassDk:'#8a6aa8', dirt:'#4a3a6e', dirtStripe:'#3a2c58', plain:'#8a6ab0', plainEdge:'#664e8a', plainShade:'#7c5ea2', tree:'#2e1a4a', treeHi:'#4c3272'}
+];
+const BIOME_SPAN = 20000; // 5000m * 4px por metro
+let BIO = BIOMES[0];
+function biomeIndexAt(x){ return Math.max(0, Math.floor(x / BIOME_SPAN)) % BIOMES.length; }
+
+/* =====================================================================
+   SPRITES (mapas de pixeles)
+   ===================================================================== */
+const SPRPAL = {
+  'O':PAL.outline, 'p':PAL.pink, 'd':PAL.pinkDk, 'l':PAL.pinkHi,
+  'k':'#1a1220', 'w':'#ffffff',
+  'o':PAL.carrot, 'r':PAL.carrotDk, 'g':PAL.leaf, 'G':PAL.leafDk,
+  'y':PAL.corn, 'Y':PAL.cornDk, 'h':PAL.husk,
+  'b':PAL.wood, 'B':PAL.woodDk,
+  't':'#e8b98a', 'H':'#7a4a22', 'e':'#c9553d', 'E':'#8f3626',
+  's':'#9aa0b4', 'S':'#6b7086', 'f':PAL.gold, 'c':'#7ad4e8', 'm':'#c86ae0'
+};
+
+function makeSprite(rows, scale=1){
+  const c = document.createElement('canvas');
+  c.width = rows[0].length * scale; c.height = rows.length * scale;
+  const g = c.getContext('2d');
+  for(let y=0; y<rows.length; y++)
+    for(let x=0; x<rows[y].length; x++){
+      const ch = rows[y][x];
+      if(ch === '.' ) continue;
+      g.fillStyle = SPRPAL[ch] || '#f0f';
+      g.fillRect(x*scale, y*scale, scale, scale);
+    }
+  return c;
+}
+
+/* =====================================================================
+   EL CERDO AVIADOR — pixel art construido con formas geométricas,
+   con la paleta y los rasgos tomados del diseño de referencia:
+   gorro de cuero, dos goggles dorados con cristal azul, hocico grande
+   con fosas, boca abierta sonriendo, arnés de cuero y alas de ganso.
+   ===================================================================== */
+const PIGPAL = {
+  O:'#2a1206', p:'#f39372', d:'#e47256', D:'#c7583f', l:'#f9b092',
+  s:'#eb765e', S:'#d4614a', m:'#8f2b30', t:'#e0574f',
+  b:'#63320b', B:'#43210a', h:'#7d4a1c',
+  f:'#e8b73c', F:'#a97c1c', c:'#2f7fc4', C:'#1b496c', w:'#ffffff',
+  k:'#3a2a1a', X:'#1a1220'
+};
+const PW = 26, PH = 23;   // rejilla lógica del cerdo (con espacio para las patas)
+
+function pigGrid(opts){
+  const o = Object.assign({legs:'run1', dead:false}, opts||{});
+  const grid = Array.from({length:PH}, ()=> Array(PW).fill('.'));
+  const set = (x,y,ch)=>{ x=Math.round(x); y=Math.round(y);
+    if(x>=0&&x<PW&&y>=0&&y<PH) grid[y][x]=ch; };
+  const get = (x,y)=> (x>=0&&x<PW&&y>=0&&y<PH) ? grid[y][x] : '.';
+  const ellipse = (cx,cy,rx,ry,ch,cond)=>{
+    for(let y=0;y<PH;y++) for(let x=0;x<PW;x++){
+      const dx=(x-cx)/rx, dy=(y-cy)/ry;
+      if(dx*dx+dy*dy<=1 && (!cond||cond(x,y))) set(x,y,ch);
+    }
+  };
+  const rect = (x0,y0,w,h,ch)=>{ for(let y=y0;y<y0+h;y++) for(let x=x0;x<x0+w;x++) set(x,y,ch); };
+  const goggle = (gx,gy,dead)=>{
+    ellipse(gx,gy,2.4,2.1,'F'); ellipse(gx,gy,1.9,1.6,'f');
+    ellipse(gx,gy,1.3,1.1,'C'); ellipse(gx,gy,1.0,0.8,'c');
+    if(dead){ // ojos en X sobre el cristal
+      set(gx-1,gy-1,'X'); set(gx+1,gy-1,'X'); set(gx,gy,'X');
+      set(gx-1,gy+1,'X'); set(gx+1,gy+1,'X');
+    } else set(gx-0.7,gy-0.5,'w');
+  };
+
+  ellipse(11.6, 4.2, 1.9, 2.2, 'd');            // oreja
+  ellipse(11.6, 4.6, 1.0, 1.2, 'D');
+  ellipse(11.5, 11.5, 8.3, 5.8, 'p');           // cuerpo redondo
+  ellipse(15.8, 8.6, 6.2, 4.9, 'p');            // cabeza
+  ellipse(11.5, 11.5, 8.3, 5.8, 'd', (x,y)=> y>=14);  // sombra baja
+  ellipse(9.5, 8.6, 3.4, 1.3, 'l');             // brillo del lomo
+  // --- HOCICO DE CERDO: disco ancho y plano con dos hoyitos separados ---
+  ellipse(20.6, 10.2, 3.6, 2.8, 'S');           // borde del disco (tono más oscuro)
+  ellipse(20.6, 10.0, 3.1, 2.3, 's');           // cara del disco
+  ellipse(20.6, 9.1, 2.1, 1.0, 'l');            // brillo arriba del disco
+  ellipse(19.2, 10.4, 0.6, 1.3, 'O');           // hoyito izquierdo
+  ellipse(22.0, 10.4, 0.6, 1.3, 'O');           // hoyito derecho
+  if(o.dead){
+    ellipse(17.6, 13.4, 2.2, 1.5, 'm');
+    rect(17,14,2,4,'t');                        // lengua colgando
+  } else {
+    ellipse(17.6, 13.2, 2.6, 1.7, 'm');         // boca abierta
+    ellipse(17.4, 13.8, 1.5, 0.9, 't');         // lengua
+  }
+  ellipse(15.8, 5.6, 6.3, 3.4, 'b', (x,y)=> y<=6);   // gorro de cuero
+  ellipse(15.8, 5.9, 5.6, 2.7, 'h', (x,y)=> y<=5);   // brillo del gorro
+  ellipse(15.8, 5.6, 6.3, 3.4, 'B', (x,y)=> y===6);
+  rect(10,6,3,4,'b'); rect(10,10,3,1,'B');           // orejera
+  goggle(14.6, 8.2, o.dead);
+  goggle(19.1, 7.8, o.dead);
+  rect(16,7,2,2,'F');                                // puente entre goggles
+  set(13,12,'b'); set(13,13,'b'); set(12,14,'b'); set(14,11,'b'); // arnés
+  set(12,15,'f'); set(13,15,'f');                    // hebilla
+  // --- PATAS: más largas y visibles, con ciclo de carrera de 4 frames ---
+  // cada pata = muslo rosa + pezuña oscura, dibujadas por debajo del cuerpo
+  const leg = (lx, ly, len, ang)=>{
+    // muslo: baja desde el cuerpo, con inclinación según el frame
+    for(let i=0;i<len;i++){
+      const px2 = lx + Math.round(ang*i);
+      set(px2, ly+i, 'p');
+      set(px2+1, ly+i, 'p');
+    }
+    const fx = lx + Math.round(ang*len);
+    set(fx, ly+len, 'k'); set(fx+1, ly+len, 'k');   // pezuña
+    set(fx+2, ly+len, 'k');
+  };
+  const LEGS = {
+    // [pata trasera: x,largo,ángulo] , [pata delantera: x,largo,ángulo]
+    // zancada bien marcada: alternan entre estiradas al frente/atrás y recogidas
+    run1: [[6,3,-0.75],[14,3,0.75]],   // zancada abierta (patas separadas)
+    run2: [[8,2,0.25],[12,2,-0.25]],   // recogidas bajo el cuerpo
+    run3: [[6,3,0.75],[14,3,-0.75]],   // zancada abierta invertida
+    run4: [[8,2,-0.25],[12,2,0.25]],   // recogidas invertidas
+    tuck: [[8,1,0.6],[13,1,-0.6]]      // encogidas (en el aire)
+  };
+  const cfg = LEGS[o.legs] || LEGS.run1;
+  leg(cfg[0][0], 15, cfg[0][1], cfg[0][2]);
+  leg(cfg[1][0], 15, cfg[1][1], cfg[1][2]);
+  set(2,9,'d'); set(1,8,'d'); set(1,10,'d'); set(2,7,'d'); set(3,9,'d'); // colita rizada
+  // contorno automático alrededor de todo el personaje
+  const solid = (x,y)=> get(x,y)!=='.' && get(x,y)!=='O';
+  const mark = [];
+  for(let y=0;y<PH;y++) for(let x=0;x<PW;x++){
+    if(get(x,y)!=='.') continue;
+    if(solid(x-1,y)||solid(x+1,y)||solid(x,y-1)||solid(x,y+1)) mark.push([x,y]);
+  }
+  for(const [x,y] of mark) set(x,y,'O');
+  return grid;
+}
+function pigCanvas(opts){
+  const grid = pigGrid(opts);
+  const c = document.createElement('canvas');
+  c.width = PW; c.height = PH;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  for(let y=0;y<PH;y++) for(let x=0;x<PW;x++){
+    const ch = grid[y][x];
+    if(ch==='.') continue;
+    g.fillStyle = PIGPAL[ch] || '#ff00ff';
+    g.fillRect(x,y,1,1);
+  }
+  return c;
+}
+/* --- alas grandes de plumas de ganso --- */
+function drawFeather(g, px, py, len, wid, angDeg, tone){
+  const ang = angDeg * Math.PI/180;
+  g.save(); g.translate(px, py); g.rotate(ang);
+  const cols = tone==='light' ? ['#2a1206','#f7edd2','#ddc79a'] : ['#2a1206','#ddc79a','#a8895c'];
+  g.fillStyle = cols[0];
+  g.beginPath();
+  g.moveTo(0,-wid/2-1); g.lineTo(len+1,-1); g.lineTo(len+1,1); g.lineTo(0,wid/2+1);
+  g.closePath(); g.fill();
+  g.fillStyle = cols[1];
+  g.beginPath(); g.moveTo(0,-wid/2); g.lineTo(len,0); g.lineTo(0,wid/2); g.closePath(); g.fill();
+  g.fillStyle = cols[2];
+  g.beginPath(); g.moveTo(0,0); g.lineTo(len,0); g.lineTo(0,wid/2); g.closePath(); g.fill();
+  g.restore();
+}
+function drawWing(g, ox, oy, spreadUp){
+  // las plumas barren hacia ATRÁS (arriba-izquierda), como un ave real
+  const rawAngles = spreadUp ? [-95,-75,-55,-35,-15] : [-55,-38,-22,-6,10];
+  const angles = rawAngles.map(a => -180 - a);
+  const lens = [15,18,20,19,15];
+  for(let i=0;i<angles.length;i++) drawFeather(g, ox, oy, lens[i], 4, angles[i], i<2?'dark':'light');
+  for(let i=0;i<3;i++) drawFeather(g, ox, oy, 7, 3.5, angles[i]+6, 'dark');
+  g.fillStyle = '#2a1206'; g.beginPath(); g.arc(ox,oy,2.5,0,7); g.fill();
+  g.fillStyle = '#ddc79a'; g.beginPath(); g.arc(ox,oy,1.8,0,7); g.fill();
+}
+function buildRunning(frame){
+  // el ala plegada va acostada al costado, siempre visible
+  const base = pigCanvas({legs: 'run'+frame});
+  const PAD_TOP = 8, PAD_L = 13;
+  const spr = document.createElement('canvas');
+  spr.width = base.width + PAD_L*2; spr.height = base.height + PAD_TOP*2;
+  const g = spr.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  drawFeather(g, 11+PAD_L, 6+PAD_TOP, 20, 5,   -168, 'dark');
+  drawFeather(g, 11+PAD_L, 6+PAD_TOP, 17, 4.5, -160, 'dark');
+  drawFeather(g, 11+PAD_L, 6+PAD_TOP, 14, 4,   -152, 'light');
+  g.fillStyle = '#2a1206'; g.beginPath(); g.arc(11+PAD_L, 6+PAD_TOP, 2.2, 0, 7); g.fill();
+  g.fillStyle = '#ddc79a'; g.beginPath(); g.arc(11+PAD_L, 6+PAD_TOP, 1.4, 0, 7); g.fill();
+  g.drawImage(base, PAD_L, PAD_TOP);
+  return spr;
+}
+// punto del lomo (en coords de la rejilla del cerdo) donde nace el ala
+const WING_GX = 11, WING_GY = 6;
+function buildFlying(spreadUp){
+  const base = pigCanvas({legs:'tuck'});
+  const c = document.createElement('canvas');
+  c.width = base.width + 38; c.height = base.height + 30;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  // el ala se ancla al hombro REAL del cerdo, así queda pegada al cuerpo
+  const offX = (c.width-base.width)/2, offY = (c.height-base.height)/2;
+  drawWing(g, offX + WING_GX, offY + WING_GY, spreadUp);
+  g.drawImage(base, offX, offY);
+  return c;
+}
+function buildBall(){
+  // en picada: patas encogidas, alas pegadas al cuerpo
+  const base = pigCanvas({legs:'tuck'});
+  const spr = document.createElement('canvas');
+  spr.width = base.width + 8; spr.height = base.height + 8;
+  const g = spr.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  drawFeather(g, 15, 8, 9, 4, -172, 'dark');
+  g.drawImage(base, 4, 4);
+  return spr;
+}
+function buildDead(){
+  const base = pigCanvas({legs:'tuck', dead:true});
+  const spr = document.createElement('canvas');
+  spr.width = base.width + 8; spr.height = base.height + 8;
+  const g = spr.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  drawFeather(g, 15, 8, 9, 4, -172, 'dark');
+  g.drawImage(base, 4, 4);
+  return spr;
+}
+
+const PIG_RUN = [buildRunning(1), buildRunning(2), buildRunning(3), buildRunning(4)];
+const PIG_RUN1 = PIG_RUN[0];
+const PIG_RUN2 = PIG_RUN[1];
+const PIG_BALL = buildBall();
+const PIG_DEAD = buildDead();
+const PIG_GLIDE = buildFlying(false);
+const PIG_FLAP_UP = buildFlying(true);
+
+/* --- obstáculos aéreos: pájaros, ovnis y orbes misteriosos --- */
+const BIRD1 = makeSprite([
+'....OO....',
+'...OwwO...',
+'.OOwwwwO..',
+'fOwwwwwwO.',
+'..OOwwwO..',
+'....OOO...'
+]);
+const BIRD2 = makeSprite([
+'....OOO...',
+'..OOwwwO..',
+'fOwwwwwwO.',
+'.OOwwwwO..',
+'...OwwO...',
+'....OO....'
+]);
+const UFO = makeSprite([
+'.....OOOOO......',
+'....OcccccO.....',
+'...OcccccccO....',
+'.OOOSSSSSSSOOO..',
+'OSSSSSSSSSSSSSO.',
+'OSfSSfSSfSSfSSO.',
+'.OOOOOOOOOOOOO..'
+]);
+const ORB = makeSprite([
+'...OOO...',
+'..OmmmO..',
+'.OmmwmmO.',
+'OmmwwwmmO',
+'.OmmwmmO.',
+'..OmmmO..',
+'...OOO...'
+]);
+/* --- ganso del corral (donador de plumas) --- */
+const GOOSE = makeSprite([
+'..OOO.....',
+'.OwwwO....',
+'.OwkwO....',
+'fOwwO.....',
+'.OwO......',
+'.OwwOOO...',
+'.OwwwwwO..',
+'.OwwwwwwO.',
+'..OwwwwO..',
+'...OOOO...',
+'...O..O...',
+'..OO..OO..'
+]);
+
+/* --- zanahoria y elote --- */
+const CARROT = makeSprite([
+'....gG..',
+'..gGgg..',
+'...gg...',
+'..OooO..',
+'..OoroO.',
+'..OooO..',
+'...OroO.',
+'...OoO..',
+'....OO..',
+'....O...'
+]);
+const CORN = makeSprite([
+'..hh....',
+'.hyyh...',
+'hyYyyh..',
+'hyyYyh..',
+'hYyyYh..',
+'hyyyyh..',
+'hyYyyh..',
+'.hyyh...',
+'..hh....',
+'...h....'
+]);
+
+/* --- porquero (el organizador) --- */
+const HERDER = makeSprite([
+'....HHHH....b.',
+'...HHHHHH...b.',
+'....tttt....b.',
+'....tktk....b.',
+'....tttt....b.',
+'.....tt.....b.',
+'...eeeeee...b.',
+'..eEeeeeEe..b.',
+'..t.eeee.t.bb.',
+'..t.eeee.t....',
+'....EEEE......',
+'...BB..BB.....',
+'...BB..BB.....'
+]);
+
+/* --- bandera de meta parcial --- */
+const FLAG = makeSprite([
+'Offf....',
+'Offff...',
+'Offfff..',
+'Offff...',
+'Offf....',
+'O.......',
+'O.......',
+'O.......',
+'O.......',
+'O.......',
+'O.......',
+'O.......'
+]);
+
+/* =====================================================================
+   AUDIO — chiptune + efectos (WebAudio)
+   ===================================================================== */
+let AC = null, musicOn = false, sfxOn = true, musicTimer = null;
+function audio(){ if(!AC){ AC = new (window.AudioContext||window.webkitAudioContext)(); } if(AC.state==='suspended') AC.resume(); return AC; }
+
+function beep(freq, dur, type='square', vol=0.12, slide=0){
+  if(!sfxOn) return;
+  try{
+    const a = audio(), o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, a.currentTime);
+    if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(30,freq+slide), a.currentTime+dur);
+    g.gain.setValueAtTime(vol, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime+dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(); o.stop(a.currentTime+dur);
+  }catch(e){}
+}
+const sfx = {
+  coin:  ()=>{ beep(880,.07,'square',.10); setTimeout(()=>beep(1318,.10,'square',.10),60); },
+  corn:  ()=>{ beep(659,.06,'square',.10); setTimeout(()=>beep(880,.06,'square',.10),50); setTimeout(()=>beep(1174,.12,'square',.10),100); },
+  perfect:()=>{ beep(523,.06,'square',.12); setTimeout(()=>beep(659,.06,'square',.12),55); setTimeout(()=>beep(784,.06,'square',.12),110); setTimeout(()=>beep(1046,.14,'square',.12),165); },
+  launch:()=>{ beep(140,.35,'sawtooth',.16, 500); },
+  land:  ()=>{ beep(120,.08,'triangle',.14,-40); },
+  oink:  ()=>{ beep(300,.07,'sawtooth',.10, 160); setTimeout(()=>beep(220,.09,'sawtooth',.10,-80),70); },
+  stop:  ()=>{ beep(392,.12,'triangle',.12); setTimeout(()=>beep(261,.25,'triangle',.12),130); },
+  ui:    ()=>{ beep(700,.05,'square',.08); },
+  record:()=>{ [523,659,784,1046,784,1046,1318].forEach((f,i)=>setTimeout(()=>beep(f,.12,'square',.11), i*110)); }
+};
+
+/* — melodía medieval (Greensleeves, dominio público) — */
+const N = {A3:220,B3:246.9,C4:261.6,D4:293.7,E4:329.6,F4:349.2,FS4:370,G4:392,A4:440,B4:493.9,C5:523.3,D5:587.3,E5:659.3,R:0};
+const TUNE = [
+ ['A3',1],['C4',2],['D4',1],['E4',1.5],['F4',.5],['E4',1],['D4',2],['B3',1],
+ ['G4',1.5],['A4',.5],['B4',1],['C5',2],['A4',1],['A4',1.5],['G4',.5],['A4',1],
+ ['B4',2],['G4',1],['E4',2],['R',1],
+ ['A3',1],['C4',2],['D4',1],['E4',1.5],['F4',.5],['E4',1],['D4',2],['B3',1],
+ ['G4',1.5],['A4',.5],['B4',1],['C5',1],['B4',1],['A4',1],['G4',1.5],['FS4',.5],['G4',1],
+ ['A4',2],['A4',1],['A4',2],['R',1]
+];
+let tuneIdx = 0;
+function playMusicStep(){
+  if(!musicOn){ musicTimer = setTimeout(playMusicStep, 300); return; }
+  const beat = 240; // ms por unidad
+  const [note, len] = TUNE[tuneIdx];
+  const f = N[note];
+  if(f){
+    try{
+      const a = audio(), o = a.createOscillator(), g = a.createGain();
+      o.type='square'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.045, a.currentTime);
+      g.gain.setValueAtTime(0.045, a.currentTime + (len*beat*0.75)/1000);
+      g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + (len*beat*0.95)/1000);
+      o.connect(g); g.connect(a.destination);
+      o.start(); o.stop(a.currentTime + len*beat/1000);
+      // bajo
+      const o2=a.createOscillator(), g2=a.createGain();
+      o2.type='triangle'; o2.frequency.value = f/2;
+      g2.gain.setValueAtTime(0.05, a.currentTime);
+      g2.gain.exponentialRampToValueAtTime(0.001, a.currentTime + (len*beat*0.9)/1000);
+      o2.connect(g2); g2.connect(a.destination);
+      o2.start(); o2.stop(a.currentTime + len*beat/1000);
+    }catch(e){}
+  }
+  tuneIdx = (tuneIdx+1) % TUNE.length;
+  musicTimer = setTimeout(playMusicStep, len*beat);
+}
+
+/* =====================================================================
+   TERRENO PROCEDURAL — colinas tipo Tiny Wings
+   ===================================================================== */
+const GROUND_START_Y = 200;
+let segs = [];
+function resetTerrainInit(){
+  resetTerrain();
+  ensureTerrain(2000);
+}
+
+function resetTerrain(){
+  segs = [];
+  // el granero está justo al filo de un risco alto; el salto del techo
+  // se convierte en una caída en picada real por la cara del acantilado
+  segs.push({x0:-400, x1:200, v0:60,  v1:60,  A:0});   // risco de la granja (bien arriba)
+  segs.push({x0:200,  x1:430, v0:60,  v1:350, A:0});   // cara del acantilado: caída pronunciada
+  segs.push({x0:430,  x1:1000,v0:350, v1:300, A:0});   // se suaviza hacia el valle
+}
+function ensureTerrain(xNeed){
+  while(segs[segs.length-1].x1 < xNeed + 1200){
+    const last = segs[segs.length-1];
+    const dist = last.x1;
+    const grow = Math.min(1, dist/9000);
+    const L = 190 + Math.random()*230 + grow*140;
+    const ramp = Math.min(1, 0.45 + dist/4000);
+    const A = (30 + Math.random()*(65 + grow*85)) * ramp;
+    let v1 = last.v1 + (Math.random()*70 - 18); // deriva descendente
+    v1 = Math.max(150, Math.min(230 + dist*0.012, v1));
+    segs.push({x0:last.x1, x1:last.x1+L, v0:last.v1, v1:v1, A:A});
+    spawnItems(segs[segs.length-1]);
+  }
+  pruneWorld(xNeed);
+}
+// quita segmentos y objetos que quedaron muy atrás del cerdo: en vuelos largos
+// (sobre todo a máxima velocidad) estas listas crecían sin límite y hacían
+// cada cuadro más pesado de procesar, dando la sensación de "trabarse"
+function pruneWorld(pigX){
+  const cutoff = pigX - 2500;
+  if(segs.length > 40){
+    let i = 0;
+    while(i < segs.length - 20 && segs[i].x1 < cutoff) i++;
+    if(i > 0) segs.splice(0, i);
+  }
+  if(items.length > 150){
+    items = items.filter(it => it.x > cutoff);
+  }
+}
+function segAt(x){
+  // búsqueda lineal desde el final (el cerdo avanza)
+  for(let i=segs.length-1; i>=0; i--) if(x >= segs[i].x0) return segs[i];
+  return segs[0];
+}
+function baseGroundY(x){
+  const s = segAt(x);
+  const t = (x - s.x0) / (s.x1 - s.x0);
+  const base = s.v0 + (s.v1 - s.v0) * (1 - Math.cos(Math.PI*t)) * 0.5;
+  const hump = s.A * 0.5 * (1 - Math.cos(2*Math.PI*t)); // 0 en valles, A en cima
+  return base - hump;
+}
+
+/* --- RAMPAS DE DESPEGUE: una al final de cada bioma (cada 5000m) ---
+   Cada rampa está "perfectamente colocada": el terreno se esculpe con una
+   bajada de impulso garantizada justo antes, y una zona de aterrizaje
+   suave justo después, para que nunca quede un muro que bloquee el paso. */
+const RAMP_LEN = 340, RAMP_H = 170, APPR_LEN = 700, APPR_DROP = 140, LAND_LEN = 300;
+function rampAt(x){
+  // devuelve la posición final R si x está sobre la madera de la rampa
+  const n = Math.floor((x + RAMP_LEN) / BIOME_SPAN);
+  if(n < 1) return 0;
+  const R = n * BIOME_SPAN;
+  return (x >= R - RAMP_LEN && x <= R) ? R : 0;
+}
+function groundY(x){
+  const n = Math.floor((x + RAMP_LEN + APPR_LEN) / BIOME_SPAN);
+  if(n >= 1){
+    const R = n * BIOME_SPAN;
+    const zStart = R - RAMP_LEN - APPR_LEN, zEnd = R + LAND_LEN;
+    if(x >= zStart && x <= zEnd){
+      // anclado exactamente al terreno natural en ambos extremos de la zona:
+      // así nunca hay un salto brusco (muro), solo curvas suaves
+      const yStart = baseGroundY(zStart);
+      const yValley = yStart + APPR_DROP;   // valle de impulso al pie de la rampa
+      const yLip = yValley - RAMP_H;        // punto más alto, al final de la rampa
+      const yLand = baseGroundY(zEnd);      // vuelve a coincidir con el terreno normal
+      if(x < R - RAMP_LEN){
+        // bajada de aproximación: de yStart a yValley
+        const t = (x - zStart) / APPR_LEN;
+        return yStart + (yValley - yStart) * (1 - Math.cos(Math.PI*t)) * 0.5;
+      } else if(x <= R){
+        // la rampa de madera: curva ascendente cada vez más empinada
+        const u = (x - (R - RAMP_LEN)) / RAMP_LEN;
+        return yValley - RAMP_H * u * u;
+      } else {
+        // zona de aterrizaje: de la punta de la rampa de vuelta al terreno normal,
+        // libre de obstáculos, para que quien no despegó siga rodando sin chocar
+        const t2 = (x - R) / LAND_LEN;
+        return yLip + (yLand - yLip) * (1 - Math.cos(Math.PI*t2)) * 0.5;
+      }
+    }
+  }
+  return baseGroundY(x);
+}
+function slopeAt(x){ return (groundY(x+2) - groundY(x-2)) / 4; }
+// curvatura (segunda derivada de la altura, convención "arriba = positivo")
+function curveAt(x){
+  const h = 5;
+  const H0 = -groundY(x-h), H1 = -groundY(x), H2 = -groundY(x+h);
+  return (H0 - 2*H1 + H2) / (h*h);
+}
+
+/* =====================================================================
+   COLECCIONABLES
+   ===================================================================== */
+let items = []; // {x,y,type:'carrot'|'corn', got:false, bob}
+function spawnItems(seg){
+  const L = seg.x1 - seg.x0;
+  if(L < 160) return;
+  const r = Math.random();
+  if(r < 0.42){
+    // fila sobre la superficie de la colina
+    const n = 3 + (Math.random()*4|0);
+    const start = seg.x0 + L*0.25, span = L*0.5;
+    const type = Math.random() < 0.25 ? 'corn' : 'carrot';
+    for(let i=0;i<n;i++){
+      const x = start + span*i/(n-1);
+      if(!rampAt(x)) items.push({x:x, y:groundY(x)-12, type:type, got:false, bob:Math.random()*6.28});
+    }
+  } else if(r < 0.72){
+    // arco en el aire sobre la cima — premia los vuelos grandes
+    const cxp = (seg.x0+seg.x1)/2;
+    const top = groundY(cxp);
+    const n = 5;
+    const type = Math.random() < 0.4 ? 'corn' : 'carrot';
+    const hgt = 46 + Math.random()*55;
+    for(let i=0;i<n;i++){
+      const t = i/(n-1), x = cxp - 70 + 140*t;
+      const y = top - hgt - Math.sin(Math.PI*t)*26;
+      if(!rampAt(x)) items.push({x:x, y:y, type:type, got:false, bob:Math.random()*6.28});
+    }
+  }
+}
+
+/* =====================================================================
+   PARTÍCULAS Y TEXTOS FLOTANTES
+   ===================================================================== */
+let parts = [], floats = [];
+function puff(x,y,n,col,spd=60,up=-30){
+  for(let i=0;i<n;i++)
+    parts.push({x:x,y:y,vx:(Math.random()-0.5)*spd,vy:up*Math.random(),life:0.5+Math.random()*0.4,t:0,col:col,sz:1+(Math.random()*2|0)});
+}
+function floatText(x,y,txt,col,big=false){
+  floats.push({x:x,y:y,txt:txt,col:col,t:0,life:big?1.4:0.9,big:big});
+}
+
+/* =====================================================================
+   RÉCORDS — storage persistente con respaldo en memoria
+   ===================================================================== */
+let records = [];
+async function loadRecords(){
+  try{
+    if(window.storage){
+      const r = await window.storage.get('cerdo-volador-records');
+      if(r && r.value) records = JSON.parse(r.value);
+    }
+  }catch(e){ /* sin registros aún */ }
+}
+async function saveRecords(){
+  try{ if(window.storage) await window.storage.set('cerdo-volador-records', JSON.stringify(records)); }catch(e){}
+}
+function addRecord(name, dist, pts){
+  const total = Math.floor(dist) + pts;
+  records.push({name:name, dist:Math.floor(dist), pts:pts, total:total});
+  records.sort((a,b)=>b.total-a.total);
+  records = records.slice(0,8);
+  saveRecords();
+  return records[0].total === total && records[0].name === name;
+}
+loadRecords();
+
+/* =====================================================================
+   ESTADO DEL JUEGO
+   ===================================================================== */
+const ST = { TITLE:0, LAUNCH:1, PLAY:2, DONE:3, RECORDS:4 };
+let state = ST.TITLE;
+let playerName = 'SIR CERDO';
+let pressed = false;
+let tGlobal = 0;
+
+const pig = {
+  x:0, y:0, vx:0, vy:0, grounded:false, spd:0, angle:0,
+  points:0, combo:0, best:0, stopT:0, frame:0, fever:0,
+  energy:100, dead:false, deadT:0, deathCause:'',
+  mode:'HILLS', flightT:0, bio:0, landAnnounced:false
+};
+const FLIGHT_TIME = 20;      // segundos que dura cada fase de vuelo
+const FLIGHT_GLIDE = 2.2;    // segundos de planeo automático al abrir las alas, antes de controlar
+const WATER_TIME = 15;       // hasta este segundo el suelo es agua (letal); después, tierra segura
+let obstacles = [], obSpawnT = 0;
+
+let camX = 0, camY = 0, shake = 0, zoom = 1;
+let powerT = 0;       // oscilador del medidor
+let launchAnim = -1;  // animación de catapulta
+let resultT = 0, newRecord = false, statT = 0;
+
+function startRun(){
+  resetTerrain();
+  ensureTerrain(2000);
+  items = []; parts = []; floats = []; obstacles = []; obSpawnT = 0;
+  // regenerar items de los segmentos ya creados (menos la rampa de salida)
+  for(let i=1;i<segs.length;i++) spawnItems(segs[i]);
+  // el cerdo empieza parado en el borde del techo, justo al filo del risco
+  const barnBase = groundY(BARN_X);
+  pig.x = 192; pig.y = barnBase - 50;
+  pig.vx = 0; pig.vy = 0; pig.grounded = false; pig.spd = 0;
+  pig.points = 0; pig.combo = 0; pig.stopT = 0; pig.fever = 0; pig.best = 192;
+  pig.energy = 100; pig.dead = false; pig.deadT = 0; pig.deathCause = '';
+  pig.mode = 'HILLS'; pig.flightT = 0; pig.bio = 0; pig.angle = 0;
+  camX = 0; camY = 60; zoom = BASE_ZOOM;
+  launchAnim = -1;
+  state = ST.LAUNCH;
+}
+
+function doLaunch(){
+  // el cerdo salta del techo del granero hacia la colina
+  pig.vx = 175;
+  pig.vy = -140;
+  pig.grounded = false;
+  shake = 2;
+  sfx.oink();
+  puff(pig.x, pig.y+4, 14, '#ffffff', 90, -50); // plumitas al saltar
+  state = ST.PLAY;
+}
+
+/* =====================================================================
+   FÍSICA/* =====================================================================
+   FÍSICA — el corazón Tiny Wings
+   ===================================================================== */
+const GRAV = 620, DIVE = 1250, FRICTION = 0.10, MAXSPD = 760; // MAXSPD -20%
+
+function physics(dt){
+  // --- ENERGÍA: solo se consume en la fase de colinas; en vuelo se pausa ---
+  if(!pig.dead && pig.mode === 'HILLS'){
+    const drain = 4.06 + (pressed ? 13.26 : 0);
+    pig.energy = Math.max(0, pig.energy - drain*dt);
+    if(pig.energy <= 0) triggerDeath('hambre');
+  }
+  if(pig.dead){
+    pig.deadT += dt;
+    pressed = false;
+    if(pig.deadT > 1.5 && state === ST.PLAY) finishRun();
+  }
+
+  // --- aviso de cambio de bioma ---
+  const bNow = biomeIndexAt(pig.x);
+  if(bNow !== pig.bio){
+    pig.bio = bNow;
+    floatText(pig.x, pig.y-70, '~ '+BIOMES[bNow].name+' ~', PAL.gold, true);
+  }
+
+  // --- a los 15s de vuelo, reaparece la tierra firme (aviso único) ---
+  if(pig.mode==='FLIGHT' && !pig.landAnnounced && pig.flightT >= WATER_TIME){
+    pig.landAnnounced = true;
+    floatText(pig.x, pig.y-40, '¡TIERRA A LA VISTA!', PAL.gold, true);
+  }
+
+  /* ================== FASE DE VUELO ================== */
+  if(pig.mode === 'FLIGHT' && !pig.dead){
+    pig.flightT += dt;
+
+    if(pig.flightT < FLIGHT_GLIDE){
+      // --- PLANEO AUTOMÁTICO: las alas se abren solas y el cerdo se estabiliza,
+      //     dando tiempo a leer la instrucción antes de tomar el control ---
+      const g2 = FLIGHT_GLIDE;
+      const t = pig.flightT / g2;
+      pig.vy += (-70 - pig.vy) * 2.4 * dt;      // se nivela hacia un planeo suave
+      pig.vx += (300 - pig.vx) * 0.8 * dt;
+      pig.x += pig.vx * dt;
+      pig.y += pig.vy * dt;
+      pig.angle = -0.18 * (1 - t);
+      pig.best = Math.max(pig.best, pig.x);
+      ensureTerrain(pig.x);
+      return;
+    }
+
+    // alas: mantener presionado = aletear y subir; soltar = caer
+    pig.vy += (pressed ? -1550 : 855) * dt; // gravedad de caída -10%: se siente más planeado
+    pig.vy = Math.max(-270, Math.min(360, pig.vy)); // tope de caída -10%: más tiempo planeando
+    // el viento bajo las alas mantiene el avance
+    pig.vx += (330 - pig.vx) * 0.35 * dt;
+    if(pig.vx < 240) pig.vx = 240;
+    pig.x += pig.vx * dt;
+    pig.y += pig.vy * dt;
+    // inclinación: al caer (soltar) se inclina de nariz hacia abajo, como picada;
+    // al aletear (presionar) se endereza un poco hacia arriba
+    pig.angle = Math.max(-0.5, Math.min(0.85, pig.vy * 0.0018));
+    if(pressed && Math.random() < 0.2) puff(pig.x-10, pig.y+2, 1, '#ffffff', 40, 10);
+
+    // techo suave
+    const ceil = groundY(pig.x) - 470;
+    if(pig.y < ceil){ pig.y = ceil; if(pig.vy < 0) pig.vy = 0; }
+
+    // los primeros 15s de vuelo el suelo es AGUA: caer ahí es fin de la partida.
+    // de los 15 a los 20s vuelve a ser tierra firme: caer ahí es un aterrizaje
+    // normal y el juego retoma las colinas con la velocidad que traía.
+    if(pig.y >= groundY(pig.x) - 3){
+      pig.y = groundY(pig.x) - 3;
+      if(pig.flightT < WATER_TIME){
+        triggerDeath('agua');
+        pig.mode = 'HILLS';
+      } else {
+        const s = slopeAt(pig.x), n = Math.sqrt(1+s*s);
+        pig.spd = Math.max(0, (pig.vx + pig.vy*s) / n);
+        pig.grounded = true;
+        pig.mode = 'HILLS';
+        floatText(pig.x, pig.y-30, '¡ATERRIZAJE SEGURO!', PAL.gold, true);
+        sfx.land();
+      }
+    }
+
+    // --- obstáculos: pájaros, ovnis y orbes ---
+    if(pig.flightT < FLIGHT_TIME - 2){
+      obSpawnT -= dt;
+      if(obSpawnT <= 0){
+        obSpawnT = 0.5 + Math.random()*0.75;
+        const ox = pig.x + (W/zoom)*0.72;
+        const g0 = groundY(ox);
+        const oy = g0 - 60 - Math.random()*370;
+        const r = Math.random();
+        if(r < 0.58)      obstacles.push({x:ox, y:oy, type:'bird', vx:-(110+Math.random()*130), vy:0, ph:Math.random()*6.28});
+        else if(r < 0.83) obstacles.push({x:ox, y:oy, type:'ufo',  vx:-(50+Math.random()*60),  vy:0, ph:Math.random()*6.28});
+        else              obstacles.push({x:ox, y:oy, type:'orb',  vx:-20, vy:0, ph:Math.random()*6.28});
+      }
+    }
+    for(let i=obstacles.length-1;i>=0;i--){
+      const o = obstacles[i];
+      o.ph += dt*4;
+      o.x += o.vx * dt;
+      if(o.type==='bird') o.y += Math.sin(o.ph)*28*dt;
+      if(o.type==='ufo')  o.y += Math.sin(o.ph*0.6)*46*dt;
+      if(o.type==='orb')  o.y += Math.sin(o.ph*0.8)*20*dt;
+      if(o.x < pig.x - 420){ obstacles.splice(i,1); continue; }
+      // ¡chocar con cualquier cosa en el aire es fin de la partida!
+      if(!pig.dead && Math.abs(o.x-pig.x) < 15 && Math.abs(o.y-pig.y) < 13){
+        triggerDeath('choque');
+        pig.mode = 'HILLS';
+        puff(o.x, o.y, 14, '#ffffff', 120, -60);
+      }
+    }
+
+    // fin de la fase de vuelo: vuelven las colinas
+    if(pig.flightT >= FLIGHT_TIME){
+      pig.mode = 'HILLS';
+      obstacles = [];
+      floatText(pig.x, pig.y-46, '¡PREPARA EL ATERRIZAJE!', PAL.cream, true);
+    }
+
+    pig.best = Math.max(pig.best, pig.x);
+    ensureTerrain(pig.x);
+    return;
+  }
+
+  /* ================== FASE DE COLINAS ================== */
+  const gEff = GRAV + (pressed ? DIVE : 0);
+
+  if(pig.grounded){
+    const s = slopeAt(pig.x);
+    const n = Math.sqrt(1 + s*s);
+    // gravedad proyectada sobre la pendiente (+s = bajada acelera)
+    let acc = gEff * (s / n);
+    acc -= FRICTION * pig.spd;             // fricción (se opone al movimiento)
+    if(pressed && s > 0) acc += 160;       // empujón extra en picada cuesta abajo
+    pig.spd += acc * dt;
+    // la gravedad puede frenarlo hasta hacerlo retroceder en una subida;
+    // eso está bien, solo morir termina la partida (no detenerse/retroceder)
+    pig.spd = Math.max(-MAXSPD, Math.min(MAXSPD, pig.spd));
+
+    const vxg = pig.spd / n;
+    const newX = pig.x + vxg * dt;
+
+    // --- ¿LLEGÓ AL FINAL DE UNA RAMPA? → despega y arranca la fase de vuelo ---
+    const R = rampAt(pig.x);
+    if(R && !pig.dead && pig.spd > 0 && newX >= R - 2){
+      startFlight();
+      pig.best = Math.max(pig.best, pig.x);
+      ensureTerrain(pig.x);
+      return;
+    }
+
+    // --- ¿PIERDE CONTACTO CON EL SUELO? (física real de "coche sobre colina") ---
+    const kappa = curveAt(pig.x);           // negativo = cima convexa
+    let takeOff = false;
+    if(!R && kappa < -0.0025 && pig.spd > 72){
+      const RR = Math.pow(1+s*s, 1.5) / Math.abs(kappa);
+      const centripetal = (pig.spd*pig.spd) / RR;
+      const gravNormal = gEff / n;
+      if(centripetal > gravNormal * (pressed ? 1.9 : 1.0)) takeOff = true;
+    }
+
+    if(takeOff){
+      pig.grounded = false;
+      pig.vx = pig.spd / n;
+      pig.vy = pig.spd * s / n;
+      puff(pig.x, pig.y-4, 10, PAL.cream, 90, -60);
+      if(pig.spd > 208) sfx.oink();
+    } else {
+      pig.x = newX;
+      pig.y = groundY(pig.x);
+      pig.angle = Math.atan2(s, 1);
+      if(Math.abs(pig.spd) > 120 && Math.random()<0.35) puff(pig.x-8, pig.y+4, 1, BIO.dirt, 40, -20);
+    }
+
+    // no retroceder más allá de la granja
+    if(pig.x < 60){ pig.x = 60; if(pig.spd < 0) pig.spd = 0; }
+
+    if(Math.abs(pig.spd) < 32) pig.stopT += dt; else pig.stopT = 0;
+
+  } else {
+    /* — en el aire (fase colinas) — */
+    pig.vy += gEff * dt;
+    pig.x += pig.vx * dt;
+    pig.y += pig.vy * dt;
+    pig.angle = Math.atan2(pig.vy, pig.vx) * 0.55;
+
+    const gy = groundY(pig.x);
+    if(pig.y >= gy){
+      pig.y = gy;
+      const s = slopeAt(pig.x);
+      const n = Math.sqrt(1+s*s);
+      const tang = (pig.vx + pig.vy*s) / n;   // proyección sobre la tangente
+      const impact = Math.abs(pig.vx*(-s/n) + pig.vy*(1/n)); // choque normal
+      pig.grounded = true;
+      pig.spd = Math.max(0, tang);
+
+      // ATERRIZAJE PERFECTO: en picada, sobre bajada pronunciada
+      if(pressed && s > 0.22 && impact < pig.spd*0.9 && pig.spd > 144){
+        pig.combo++;
+        pig.fever = Math.min(3, pig.fever + 1);
+        const bonus = 25 * pig.combo;
+        pig.points += bonus;
+        pig.spd *= 1.14;
+        floatText(pig.x, pig.y-30, '¡PERFECTO x'+pig.combo+'!', PAL.gold, true);
+        floatText(pig.x, pig.y-16, '+'+bonus, PAL.cream, false);
+        puff(pig.x, pig.y, 14, PAL.gold, 100, -70);
+        sfx.perfect();
+        shake = 3;
+      } else {
+        if(impact > 260){
+          pig.combo = 0; pig.fever = Math.max(0, pig.fever-1);
+          pig.spd *= 0.88;
+          shake = Math.min(7, impact/70);
+          puff(pig.x, pig.y, 10, BIO.dirt, 90, -50);
+          sfx.land();
+        } else {
+          puff(pig.x, pig.y, 5, BIO.dirt, 60, -30);
+        }
+      }
+    }
+    // techo suave
+    if(pig.y < -140) pig.y = -140;
+  }
+
+  /* — coleccionables — */
+  if(!pig.dead) for(const it of items){
+    if(it.got) continue;
+    if(Math.abs(it.x-pig.x) > 300) continue;
+    const dx = it.x - pig.x, dy = it.y - pig.y;
+    if(dx*dx + dy*dy < 17*17){
+      it.got = true;
+      const val = it.type==='corn' ? 50 : 20;
+      const nrg = it.type==='corn' ? 32 : 16;
+      pig.points += val;
+      pig.energy = Math.min(100, pig.energy + nrg);
+      floatText(it.x, it.y-10, '+'+val, it.type==='corn'?PAL.corn:PAL.carrot, false);
+      puff(it.x, it.y, 8, it.type==='corn'?PAL.corn:PAL.carrot, 80, -50);
+      if(it.type==='corn') sfx.corn(); else sfx.coin();
+    }
+  }
+
+  pig.best = Math.max(pig.best, pig.x);
+  ensureTerrain(pig.x);
+}
+
+function startFlight(){
+  pig.mode = 'FLIGHT';
+  pig.flightT = 0;
+  pig.grounded = false;
+  pig.landAnnounced = false;
+  obstacles = []; obSpawnT = 1.1;
+  const v = Math.max(260, pig.spd / Math.SQRT2);
+  pig.vx = v; pig.vy = -v;
+  floatText(pig.x, pig.y-50, '¡A VOLAR, CERDITO!', PAL.gold, true);
+  setTimeout(()=>floatText(pig.x, pig.y-40, '¡CUIDADO, ABAJO HAY AGUA!', PAL.cream, true), 900);
+  sfx.launch();
+  setTimeout(()=>sfx.oink(), 300);
+  puff(pig.x, pig.y, 20, '#ffffff', 140, -80);
+  shake = 5;
+}
+
+function triggerDeath(cause){
+  if(pig.dead) return;
+  pig.dead = true; pig.deadT = 0; pig.deathCause = cause || 'hambre';
+  pig.combo = 0; pig.fever = 0;
+  if(cause === 'agua'){
+    puff(pig.x, pig.y-4, 20, '#bfe8ff', 110, -70);
+    beep(300,.12,'sine',.14,-60); setTimeout(()=>beep(200,.18,'sine',.12,-40), 120);
+  } else {
+    puff(pig.x, pig.y-6, 16, PAL.pinkDk, 70, -40);
+    beep(180,.22,'sawtooth',.14,-120);
+    setTimeout(()=>beep(120,.3,'sawtooth',.12,-90), 180);
+  }
+  shake = 4;
+}
+
+function finishRun(){
+  state = ST.DONE;
+  resultT = 0; statT = 0;
+  sfx.stop();
+  const dist = pig.best/4;
+  newRecord = addRecord(playerName, dist, pig.points);
+  if(newRecord) setTimeout(()=>sfx.record(), 700);
+}
+
+/* =====================================================================
+   CÁMARA
+   ===================================================================== */
+const BASE_ZOOM = 0.9;              // zoom fijo general: 10% más alejado siempre
+const MIN_ZOOM = BASE_ZOOM * 0.46;  // mínimo al volar muy alto (proporcional al base)
+let viewMX = 0, viewMY = 0; // margen extra (en px de pantalla) que hay que dibujar cuando el zoom se aleja
+function updateZoom(dt){
+  // mientras más alto vuele el cerdo sobre el terreno, más se aleja la cámara,
+  // partiendo siempre del zoom base fijo (nunca se acerca más que eso)
+  const groundHere = groundY(pig.x);
+  const airHeight = pig.dead ? 0 : Math.max(0, groundHere - pig.y);
+  const heightFrac = airHeight > 65 ? Math.max(0.46, 1 - (airHeight-65)/240) : 1;
+  // en fase de vuelo el zoom se queda fijo un poco alejado, sin bombear
+  const target = pig.mode==='FLIGHT' ? BASE_ZOOM*0.8 : heightFrac * BASE_ZOOM;
+  zoom += (target - zoom) * Math.min(1, dt*1.17); // 10% más lento que antes
+  // con el zoom afuera hay que "pintar" más allá del lienzo para que ninguna
+  // capa (cielo, montañas, terreno...) se quede corta y deje bordes vacíos
+  viewMX = W * (1/zoom - 1) / 2;
+  viewMY = H * (1/zoom - 1) / 2;
+}
+function updateCam(dt){
+  const tx = pig.x - W*0.32;
+  camX += (tx - camX) * Math.min(1, dt*8);
+  let ty = pig.y - H*0.36;   // el cerdo queda más arriba en pantalla: se ve más suelo abajo
+  const gmax = groundY(pig.x);
+  const viewH = H / zoom;                    // alto de mundo visible con el zoom actual
+  ty = Math.min(ty, gmax - viewH + 76/zoom);  // que siempre se vea suelo
+  ty = Math.max(ty, -320/zoom);
+  camY += (ty - camY) * Math.min(1, dt*5);
+  if(shake > 0) shake = Math.max(0, shake - dt*18);
+}
+
+/* =====================================================================
+   DIBUJO
+   ===================================================================== */
+function px(n){ return Math.round(n); }
+
+function drawSky(){
+  const mx = viewMX, my = viewMY;
+  const g = cx.createLinearGradient(0,-my,0,H+my);
+  g.addColorStop(0, BIO.sky[0]); g.addColorStop(0.45, BIO.sky[1]);
+  g.addColorStop(0.78, BIO.sky[2]); g.addColorStop(1, BIO.sky[3]);
+  cx.fillStyle = g; cx.fillRect(-mx,-my,W+mx*2,H+my*2);
+  // bandas dither retro
+  cx.globalAlpha = 0.08;
+  for(let y=-my|0;y<H+my;y+=4){ cx.fillStyle = y%8?'#000':'#fff'; cx.fillRect(-mx,y,W+mx*2,1); }
+  cx.globalAlpha = 1;
+  // sol
+  const sx = W-88 - camX*0.01, sy = 62 + camY*0.02;
+  cx.fillStyle = PAL.sun; cx.beginPath(); cx.arc(sx,sy,22,0,7); cx.fill();
+  cx.fillStyle = PAL.sunCore; cx.beginPath(); cx.arc(sx,sy,15,0,7); cx.fill();
+  // nubes — envuelven sobre todo el ancho visible, incluido el margen del zoom
+  cx.fillStyle = PAL.cloud;
+  const cloudSpan = W + mx*2 + 160;
+  for(let i=0;i<9;i++){
+    const cxp = ((i*173 + 40 - camX*0.06) % cloudSpan) - 80 - mx;
+    const cyp = 30 + (i*37)%70 + camY*0.03;
+    cx.globalAlpha = 0.75;
+    cx.fillRect(px(cxp),px(cyp),34,7); cx.fillRect(px(cxp+6),px(cyp-4),20,4); cx.fillRect(px(cxp+8),px(cyp+7),18,4);
+  }
+  cx.globalAlpha = 1;
+}
+
+function drawParallax(){
+  const mx = viewMX, my = viewMY;
+
+  // --- pastizal plano de fondo, sin colinas (estilo Super Mario World) ---
+  const plainY = 176 + camY*0.22;
+  cx.fillStyle = BIO.plain;
+  cx.fillRect(-mx, plainY, W+mx*2, (H+my) - plainY + my);
+  // franja de sombra suave justo debajo del horizonte, para dar sensación de profundidad
+  cx.fillStyle = BIO.plainShade;
+  cx.fillRect(-mx, plainY+10, W+mx*2, 14);
+  cx.fillStyle = BIO.plainEdge;
+  cx.fillRect(-mx, plainY, W+mx*2, 3);
+
+  // --- bosques distantes: grupos de árboles repartidos con espacio regular ---
+  const foreSpace = 230, foreParallax = 0.34;
+  const foreOff = camX*foreParallax;
+  const f0 = Math.floor((foreOff-mx)/foreSpace)-1, f1 = Math.ceil((foreOff+W+mx)/foreSpace)+1;
+  for(let i=f0;i<f1;i++){
+    if(rand01(i*0.91) < 0.28) continue; // deja huecos de puro pastizal entre bosques
+    const wx = i*foreSpace + (rand01(i*3.7)-0.5)*70;
+    const sx = wx - foreOff;
+    if(sx < -mx-40 || sx > W+mx+40) continue;
+    const n = 3 + Math.floor(rand01(i*1.3)*3); // 3–5 árboles por grupo
+    for(let t=0;t<n;t++){
+      const tx = sx + (t-(n-1)/2)*13 + (rand01(i*7+t)-0.5)*5;
+      const th = 15 + rand01(i*5+t)*11;
+      drawPineTree(tx, plainY+6, th);
+    }
+  }
+
+  // --- castillo principal del torneo (cerca de la salida) ---
+  const castX = 260 - (camX*0.18)%900, castY = 128 + camY*0.08;
+  cx.fillStyle = PAL.castle;
+  cx.fillRect(px(castX),px(castY),70,70);
+  cx.fillRect(px(castX-14),px(castY-18),18,88); cx.fillRect(px(castX+66),px(castY-18),18,88);
+  for(let i=0;i<4;i++){ cx.fillRect(px(castX-14+i*5),px(castY-24),3,6); cx.fillRect(px(castX+66+i*5),px(castY-24),3,6); }
+  for(let i=0;i<7;i++) cx.fillRect(px(castX+2+i*10),px(castY-6),4,6);
+  cx.fillStyle = PAL.red; cx.fillRect(px(castX-9),px(castY-32),1,14); cx.fillRect(px(castX-8),px(castY-32),7,5);
+
+  // --- castillos lejanos repartidos a lo largo del recorrido ---
+  const castSpace = 1500, castParallax = 0.15;
+  const castOff = camX*castParallax;
+  const c0 = Math.floor((castOff-mx)/castSpace)-1, c1 = Math.ceil((castOff+W+mx)/castSpace)+1;
+  for(let c=c0;c<c1;c++){
+    const wx = c*castSpace + 500 + (rand01(c*2.3)-0.5)*160;
+    const sx = wx - castOff;
+    if(sx < -mx-60 || sx > W+mx+60) continue;
+    drawDistantCastle(sx, plainY, 0.7 + rand01(c*4.1)*0.35);
+  }
+}
+
+// pequeño ruido pseudoaleatorio determinístico (mismo índice = mismo resultado siempre)
+function rand01(seed){
+  const v = Math.sin(seed*12.9898)*43758.5453;
+  return v - Math.floor(v);
+}
+
+function drawPineTree(x, groundY, h){
+  const w = h*0.56;
+  cx.fillStyle = BIO.tree;
+  cx.beginPath();
+  cx.moveTo(x, groundY-h); cx.lineTo(x-w/2, groundY-h*0.5); cx.lineTo(x+w/2, groundY-h*0.5);
+  cx.closePath(); cx.fill();
+  cx.beginPath();
+  cx.moveTo(x, groundY-h*0.62); cx.lineTo(x-w*0.42, groundY-h*0.1); cx.lineTo(x+w*0.42, groundY-h*0.1);
+  cx.closePath(); cx.fill();
+  cx.fillStyle = BIO.treeHi;
+  cx.beginPath();
+  cx.moveTo(x, groundY-h*0.7); cx.lineTo(x-w*0.22, groundY-h*0.42); cx.lineTo(x+w*0.05, groundY-h*0.42);
+  cx.closePath(); cx.fill();
+  cx.fillStyle = PAL.woodDk;
+  cx.fillRect(px(x-2), px(groundY-5), 4, 7);
+}
+
+function drawDistantCastle(x, groundY, scale){
+  const w = 46*scale, h = 44*scale, tW = 12*scale, tH = 14*scale;
+  const baseY = groundY;
+  cx.fillStyle = PAL.castleFar;
+  cx.fillRect(px(x-w/2), px(baseY-h), w, h);
+  cx.fillRect(px(x-w/2-tW), px(baseY-h-tH), tW, h+tH);
+  cx.fillRect(px(x+w/2), px(baseY-h-tH), tW, h+tH);
+  cx.fillStyle = PAL.castle;
+  for(let i=0;i<3;i++){
+    cx.fillRect(px(x-w/2-tW+i*4*scale), px(baseY-h-tH-4*scale), 3*scale, 5*scale);
+    cx.fillRect(px(x+w/2+i*4*scale), px(baseY-h-tH-4*scale), 3*scale, 5*scale);
+  }
+  for(let i=0;i<5;i++) cx.fillRect(px(x-w/2+2*scale+i*8*scale), px(baseY-h-3*scale), 5*scale, 5*scale);
+  cx.fillStyle = PAL.red;
+  cx.fillRect(px(x-w/2-tW-4*scale), px(baseY-h-tH-24*scale), 1, 12*scale);
+  cx.fillRect(px(x-w/2-tW-3*scale), px(baseY-h-tH-24*scale), 5*scale, 4*scale);
+}
+
+/* --- AGUA: reemplaza visualmente el terreno durante los primeros 15s de
+   cada fase de vuelo. Usa la MISMA altura (groundY) que el terreno real,
+   así que la colisión sigue siendo consistente; solo cambia el "disfraz". */
+function drawWaterTerrain(){
+  const mx = viewMX, my = viewMY;
+  const step = 3;
+  const xs = [], ys = [];
+  for(let x = -mx|0; x <= W+mx; x += step){
+    xs.push(x); ys.push(groundY(x+camX) - camY);
+  }
+  // cuerpo de agua con degradado
+  const g = cx.createLinearGradient(0, 0, 0, H+my);
+  g.addColorStop(0, '#2a7ab8'); g.addColorStop(0.4, '#1a5a94'); g.addColorStop(1, '#0e3a68');
+  cx.fillStyle = g;
+  cx.beginPath();
+  cx.moveTo(-mx,H+my);
+  for(let i=0;i<xs.length;i++) cx.lineTo(xs[i], ys[i]);
+  cx.lineTo(W+mx,H+my); cx.closePath(); cx.fill();
+  // cresta de olas animada justo en la superficie
+  cx.fillStyle = '#bfe8ff';
+  for(let i=0;i<xs.length;i+=2){
+    const wave = Math.sin(xs[i]*0.06 + tGlobal*3) * 2;
+    cx.fillRect(xs[i], px(ys[i]+wave), step*2, 2);
+  }
+  cx.fillStyle = '#6fc7e0';
+  for(let i=0;i<xs.length;i+=2){
+    const wave = Math.sin(xs[i]*0.06 + tGlobal*3) * 2;
+    cx.fillRect(xs[i], px(ys[i]+wave+2), step*2, 4);
+  }
+  // destellos de luz sobre el agua
+  for(let i=0;i<xs.length;i+=14){
+    if(((xs[i]*3+ (tGlobal*40|0))|0) % 7 === 0){
+      cx.fillStyle = 'rgba(255,255,255,0.55)';
+      cx.fillRect(xs[i]+4, px(ys[i]+7), 3, 1);
+    }
+  }
+}
+
+function drawTerrain(){
+  const mx = viewMX, my = viewMY;
+  const step = 3;
+  // se calcula la altura del terreno UNA sola vez por columna y se reutiliza
+  // tanto para el relleno de tierra como para la franja de pasto — antes se
+  // calculaba dos veces por columna, lo que pesaba sobre todo en vuelos largos
+  const xs = [], ys = [];
+  for(let x = -mx|0; x <= W+mx; x += step){
+    xs.push(x); ys.push(groundY(x+camX) - camY);
+  }
+
+  // pasto + tierra con rayas
+  cx.fillStyle = BIO.dirt;
+  cx.beginPath();
+  cx.moveTo(-mx,H+my);
+  for(let i=0;i<xs.length;i++) cx.lineTo(xs[i], ys[i]);
+  cx.lineTo(W+mx,H+my); cx.closePath(); cx.fill();
+  // rayas diagonales de tierra (look 16-bit)
+  cx.save(); cx.clip();
+  cx.fillStyle = BIO.dirtStripe;
+  const off = -((camX*0.7) % 32);
+  for(let x=off-56-mx; x<W+mx+56; x+=32){
+    cx.save(); cx.translate(x, 0); cx.rotate(0.5);
+    cx.fillRect(0, -50-my, 9, (H+my*2)*2.2);
+    cx.restore();
+  }
+  cx.restore();
+  // franja de pasto (reutiliza las alturas ya calculadas arriba)
+  for(let i=0;i<xs.length;i++){
+    const x = xs[i], wy = ys[i];
+    cx.fillStyle = BIO.grass;   cx.fillRect(x, px(wy),   step, 7);
+    cx.fillStyle = BIO.grassHi; cx.fillRect(x, px(wy),   step, 2);
+    cx.fillStyle = BIO.grassDk; cx.fillRect(x, px(wy)+7, step, 3);
+    cx.fillStyle = PAL.outline; cx.fillRect(x, px(wy)-1, step, 1);
+  }
+  // banderines cada 250 m
+  const first = Math.floor((camX-mx)/1000)*1000;
+  for(let bx=first; bx<camX+W+mx+40; bx+=1000){
+    if(bx <= 200) continue;
+    const sx2 = bx - camX, sy2 = groundY(bx) - camY;
+    cx.drawImage(FLAG, px(sx2), px(sy2-24), 16, 24);
+    cx.fillStyle = PAL.cream;
+    cx.font = '7px "Press Start 2P", monospace';
+    cx.fillText((bx/4|0)+'m', px(sx2+2), px(sy2-27));
+  }
+  // --- RAMPAS DE MADERA (construidas sobre el terreno) ---
+  const rn0 = Math.max(1, Math.floor((camX - mx) / BIOME_SPAN));
+  const rn1 = Math.floor((camX + W + mx + RAMP_LEN) / BIOME_SPAN) + 1;
+  for(let n = rn0; n <= rn1; n++){
+    const R = n * BIOME_SPAN;
+    const zx0 = R - RAMP_LEN;
+    if(zx0 > camX + W + mx || R < camX - mx) continue;
+    // tablones de la superficie
+    for(let wx2 = zx0; wx2 <= R; wx2 += 4){
+      const sy3 = groundY(wx2) - camY;
+      const sx3 = wx2 - camX;
+      cx.fillStyle = PAL.wood;    cx.fillRect(px(sx3), px(sy3), 4, 5);
+      cx.fillStyle = PAL.woodDk;  cx.fillRect(px(sx3), px(sy3)+5, 4, 2);
+      if(((wx2/4)|0)%6===0){ cx.fillStyle = PAL.outline; cx.fillRect(px(sx3), px(sy3), 1, 6); }
+    }
+    // postes de soporte hasta el terreno de abajo
+    for(let wx2 = zx0+40; wx2 < R; wx2 += 56){
+      const topY = groundY(wx2) - camY;
+      const botY = baseGroundY(wx2) - camY;
+      if(botY > topY + 6){
+        cx.fillStyle = PAL.woodDk;
+        cx.fillRect(px(wx2-camX), px(topY+6), 4, botY-topY-6);
+      }
+    }
+    // banderola al final de la rampa
+    const eY = groundY(R-2) - camY, eX = R - camX;
+    cx.drawImage(FLAG, px(eX-4), px(eY-26), 16, 24);
+  }
+}
+
+function drawItems(){
+  const mx = viewMX;
+  for(const it of items){
+    if(it.got) continue;
+    const sx = it.x - camX, sy = it.y - camY + Math.sin(tGlobal*3 + it.bob)*2;
+    if(sx < -20-mx || sx > W+20+mx) continue;
+    const spr = it.type==='corn' ? CORN : CARROT;
+    cx.drawImage(spr, px(sx-8), px(sy-10), 16, 20);
+  }
+}
+
+function drawObstacles(){
+  for(const o of obstacles){
+    const sx = o.x - camX, sy = o.y - camY;
+    if(sx < -30-viewMX || sx > W+30+viewMX) continue;
+    if(o.type==='bird'){
+      const spr = ((tGlobal*8|0)%2) ? BIRD1 : BIRD2;
+      cx.drawImage(spr, px(sx-10), px(sy-6), 20, 12);
+    } else if(o.type==='ufo'){
+      cx.drawImage(UFO, px(sx-14), px(sy-7), 28, 13);
+      // rayito de luz parpadeante
+      if((tGlobal*5|0)%2===0){
+        cx.globalAlpha = 0.25; cx.fillStyle = SPRPAL['c'];
+        cx.fillRect(px(sx-5), px(sy+6), 10, 14);
+        cx.globalAlpha = 1;
+      }
+    } else {
+      const pulse = 1 + Math.sin(o.ph*2)*0.18;
+      const sz = 16*pulse;
+      cx.drawImage(ORB, px(sx-sz/2), px(sy-sz/2), sz, sz);
+    }
+  }
+}
+
+function drawPig(){
+  const sx = pig.x - camX, sy = pig.y - camY;
+  cx.save();
+  cx.translate(px(sx), px(sy-7));
+  cx.rotate(pig.dead ? Math.PI : pig.angle); // muerto: volteado panza arriba
+  // aura de fiebre (combos)
+  if(!pig.dead && pig.fever >= 2 && (tGlobal*10|0)%2===0){
+    cx.globalAlpha = 0.5;
+    cx.fillStyle = pig.fever>=3 ? PAL.gold : PAL.cream;
+    cx.fillRect(-14,-11,28,22);
+    cx.globalAlpha = 1;
+  }
+  let spr;
+  if(pig.dead) spr = PIG_DEAD;
+  else if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE)
+    spr = PIG_GLIDE; // planeo automático: las alas se abren solas
+  else if(pig.mode==='FLIGHT')
+    spr = pressed ? (((tGlobal*9|0)%2) ? PIG_FLAP_UP : PIG_GLIDE) : PIG_BALL;
+  else if(!pig.grounded) spr = pressed ? PIG_BALL : PIG_GLIDE;
+  else {
+    // ciclo de carrera de 4 frames: la cadencia sube con la velocidad, y al
+    // picar (pressed) las patitas se mueven aún más rápido, como esprintando
+    const sprint = pressed ? 1.9 : 1;
+    pig.frame += (0.02 + Math.abs(pig.spd)*0.0011) * sprint;
+    spr = PIG_RUN[(pig.frame|0) % 4];
+  }
+  cx.drawImage(spr, -spr.width/2|0, -spr.height/2|0);
+  cx.restore();
+  // estela de velocidad
+  if(!pig.dead && (pig.spd > 344 || (!pig.grounded && Math.abs(pig.vx) > 344))){
+    cx.globalAlpha = 0.45; cx.fillStyle = '#fff';
+    for(let i=0;i<3;i++) cx.fillRect(px(sx-18-i*7), px(sy-14+i*5), 8, 1);
+    cx.globalAlpha = 1;
+  }
+}
+
+const BARN_X = 150; // el granero queda justo al filo del risco (la bajada empieza en x=200)
+function drawFarmScene(){
+  // la granja del cerdo: granero medieval, ganso donador de plumas y cerca
+  const bx = BARN_X - camX;
+  if(bx < -160-viewMX || bx > W+120+viewMX) return;
+  const base = groundY(BARN_X) - camY;
+  const bodyW = 96, bodyH = 48, bL = px(bx - bodyW/2);
+  // cuerpo del granero
+  cx.fillStyle = '#a83c2a';
+  cx.fillRect(bL, px(base-bodyH), bodyW, bodyH);
+  cx.fillStyle = '#8a2e20';
+  for(let i=0;i<bodyW;i+=8) cx.fillRect(bL+i, px(base-bodyH), 1, bodyH);
+  // techo a dos aguas
+  cx.fillStyle = PAL.woodDk;
+  cx.beginPath();
+  cx.moveTo(bL-10, px(base-bodyH));
+  cx.lineTo(bL+bodyW/2, px(base-bodyH-26));
+  cx.lineTo(bL+bodyW+10, px(base-bodyH));
+  cx.closePath(); cx.fill();
+  cx.fillStyle = PAL.wood;
+  cx.fillRect(bL-10, px(base-bodyH)-2, bodyW+20, 3);
+  // puerta y marco blanco
+  cx.fillStyle = '#f5ecd7';
+  cx.strokeStyle = '#f5ecd7'; cx.lineWidth = 2;
+  cx.strokeRect(bL+bodyW/2-14.5, px(base-30)+0.5, 29, 30);
+  cx.beginPath();
+  cx.moveTo(bL+bodyW/2-14, px(base-30)); cx.lineTo(bL+bodyW/2+14, px(base));
+  cx.moveTo(bL+bodyW/2+14, px(base-30)); cx.lineTo(bL+bodyW/2-14, px(base));
+  cx.stroke();
+  // ganso donador de plumas, del lado contrario al risco
+  cx.drawImage(GOOSE, px(bx-bodyW/2-30), px(base-14), 12, 14);
+  // cerca de madera
+  cx.fillStyle = PAL.wood;
+  for(let i=0;i<5;i++){
+    const wxF = BARN_X - bodyW/2 - 40 - i*16;   // posición en el mundo
+    cx.fillRect(px(wxF - camX), px(groundY(wxF)-camY-10), 3, 10);
+  }
+}
+
+function drawParticles(dt){
+  for(let i=parts.length-1;i>=0;i--){
+    const p = parts[i];
+    p.t += dt;
+    if(p.t > p.life){ parts.splice(i,1); continue; }
+    p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 140*dt;
+    cx.globalAlpha = 1 - p.t/p.life;
+    cx.fillStyle = p.col;
+    cx.fillRect(px(p.x-camX), px(p.y-camY), p.sz, p.sz);
+  }
+  cx.globalAlpha = 1;
+  for(let i=floats.length-1;i>=0;i--){
+    const f = floats[i];
+    f.t += dt;
+    if(f.t > f.life){ floats.splice(i,1); continue; }
+    cx.globalAlpha = Math.min(1, (f.life-f.t)*2.5);
+    cx.font = (f.big?'9px':'7px') + ' "Press Start 2P", monospace';
+    cx.fillStyle = PAL.outline;
+    const fx = px(f.x-camX - cx.measureText(f.txt).width/2), fy = px(f.y-camY - f.t*26);
+    cx.fillText(f.txt, fx+1, fy+1);
+    cx.fillStyle = f.col;
+    cx.fillText(f.txt, fx, fy);
+  }
+  cx.globalAlpha = 1;
+}
+
+/* ---------- utilidades UI ---------- */
+function text(txt, x, y, size, col, center=true, shadow=true){
+  cx.font = size + 'px "Press Start 2P", monospace';
+  const wpx = cx.measureText(txt).width;
+  const dx = center ? x - wpx/2 : x;
+  if(shadow){ cx.fillStyle = PAL.outline; cx.fillText(txt, px(dx)+1, px(y)+1); }
+  cx.fillStyle = col; cx.fillText(txt, px(dx), px(y));
+}
+function panel(x,y,w,h){
+  cx.fillStyle = 'rgba(27,17,38,0.88)'; cx.fillRect(x,y,w,h);
+  cx.strokeStyle = PAL.gold; cx.lineWidth = 2; cx.strokeRect(x+1.5,y+1.5,w-3,h-3);
+  cx.strokeStyle = PAL.woodDk; cx.strokeRect(x+4.5,y+4.5,w-9,h-9);
+}
+
+/* =====================================================================
+   PANTALLAS
+   ===================================================================== */
+function drawHUD(){
+  const dist = Math.floor(pig.best/4);
+  panel(6,6,150,40);
+  text('DIST '+dist+'m', 14, 22, 8, PAL.cream, false);
+  text('PTS  '+pig.points, 14, 38, 8, PAL.gold, false);
+  // velocidad — el relleno nunca se sale del recuadro (0 a 1)
+  panel(W-118,6,112,26);
+  const spd = pig.grounded ? pig.spd : Math.hypot(pig.vx,pig.vy);
+  const frac = Math.max(0, Math.min(1, spd/MAXSPD));
+  cx.fillStyle = PAL.woodDk; cx.fillRect(W-110,14,96,10);
+  cx.fillStyle = frac>0.75?PAL.gold:(frac>0.4?PAL.carrot:PAL.grass);
+  cx.fillRect(W-110,14,px(96*frac),10);
+  text('VEL', W-88, 12, 6, PAL.cream, false);
+  // energía — barra central arriba, parpadea en rojo si está muy baja
+  const eFrac = Math.max(0, Math.min(1, pig.energy/100));
+  const barW = 130, barX = W/2-barW/2;
+  panel(barX-6, 6, barW+12, 20);
+  cx.fillStyle = PAL.woodDk; cx.fillRect(barX, 12, barW, 8);
+  const low = eFrac < 0.25;
+  const eCol = low ? (((tGlobal*6)|0)%2===0 ? PAL.red : PAL.gold) : (eFrac>0.55?PAL.grass:PAL.carrot);
+  cx.fillStyle = eCol; cx.fillRect(barX, 12, px(barW*eFrac), 8);
+  cx.strokeStyle = PAL.cream; cx.lineWidth=1; cx.strokeRect(barX+.5,11.5,barW,9);
+  text('ENERGÍA', W/2, 24, 5, low?PAL.red:PAL.cream);
+  if(pig.combo >= 2) text('COMBO x'+pig.combo, W/2, 42, 9, PAL.gold);
+  if(records.length) text('RECORD: '+records[0].total+' ('+records[0].name+')', W/2, H-8, 6, PAL.cream);
+  // bioma actual y distancia a la próxima rampa
+  text(BIOMES[pig.bio].name, 14, H-10, 6, PAL.gold, false);
+  if(pig.mode==='HILLS'){
+    const nextR = (Math.floor(pig.x / BIOME_SPAN) + 1) * BIOME_SPAN;
+    text('RAMPA EN '+(((nextR-pig.x)/4)|0)+'m', W-8-cx.measureText('RAMPA EN 0000m').width, H-10, 6, PAL.cream, false);
+  } else {
+    const left = Math.max(0, FLIGHT_TIME - pig.flightT);
+    text('¡VUELO! '+left.toFixed(0)+'s', W/2, 56, 9, PAL.gold);
+    if(pig.flightT < WATER_TIME){
+      const wleft = (WATER_TIME - pig.flightT).toFixed(0);
+      text('¡AGUA ABAJO! ('+wleft+'s)', W/2, 66, 6, '#6fc7e0');
+    } else {
+      text('TIERRA FIRME: PUEDES ATERRIZAR', W/2, 66, 6, PAL.grass);
+    }
+  }
+  // instrucción breve al inicio
+  if(pig.x < 900 && state===ST.PLAY && pig.mode==='HILLS')
+    text('MANTÉN PRESIONADO = PICADA', W/2, 70, 7, PAL.cream);
+  if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 2.5)
+    text('PRESIONA PARA MANTENER LAS ALAS ABIERTAS', W/2, 78, 7, PAL.cream);
+  if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 2.5)
+    text('SUELTA PARA BAJAR', W/2, 88, 7, PAL.cream);
+}
+
+function drawTitle(){
+  drawSky(); drawParallax(); camX = 0; camY = 40;
+  drawTerrain(); drawFarmScene();
+  // el cerdo aviador, parado al filo del techo, soñando con volar
+  const roofY = groundY(BARN_X) - camY - 50;
+  cx.drawImage(PIG_RUN1, 174, px(roofY - 14), 38, 26);
+
+  const bob = Math.sin(tGlobal*1.8)*3;
+  panel(W/2-176, 26+bob, 352, 74);
+  text('EL CERDO', W/2, 50+bob, 12, PAL.cream);
+  text('VOLADOR', W/2, 74+bob, 19, PAL.gold);
+  text('~ El sueño de volar ~', W/2, 92+bob, 6, PAL.pinkHi);
+
+  if((tGlobal*1.6|0)%2===0)
+    text('TOCA PARA VOLAR', W/2, 152, 9, PAL.cream);
+  text('[R] VER RÉCORDS', W/2, 172, 6, PAL.cream);
+
+  panel(W/2-160, 186, 320, 66);
+  text('CÓMO JUGAR', W/2, 200, 7, PAL.gold);
+  text('Pica en las bajadas para ganar velocidad', W/2, 212, 5, PAL.cream);
+  text('Cada 5000m: RAMPA — mantén para aletear en el aire', W/2, 222, 5, PAL.cream);
+  text('Esquiva pájaros y ovnis. Zanahoria +20  Elote +50', W/2, 232, 5, PAL.carrot);
+  text('Sin energía o chocando en vuelo: FIN', W/2, 242, 5, PAL.pinkHi);
+}
+
+function drawLaunch(){
+  drawSky(); drawParallax(); drawTerrain(); drawItems(); drawFarmScene(); drawPig();
+  panel(W/2-136, 30, 272, 52);
+  text(playerName, W/2, 48, 9, PAL.gold);
+  text('¡TOCA PARA SALTAR DEL GRANERO!', W/2, 66, 7, PAL.cream);
+}
+
+function drawDone(dt){
+  drawSky(); drawParallax(); drawTerrain(); drawItems(); drawPig(); drawParticles(dt);
+  resultT += dt; statT += dt;
+  const dist = Math.floor(pig.best/4);
+  const total = dist + pig.points;
+  const show = Math.min(1, resultT/0.5);
+
+  panel(W/2-150, 30, 300, 148);
+  if(pig.deathCause==='agua') text('¡CAYÓ AL AGUA!', W/2, 52, 9, PAL.red);
+  else if(pig.deathCause==='choque') text('¡SE ESTRELLÓ EN PLENO VUELO!', W/2, 52, 8, PAL.red);
+  else text('¡SE QUEDÓ SIN ENERGÍA!', W/2, 52, 9, PAL.red);
+  // contadores animados
+  const cDist = Math.floor(dist * Math.min(1, statT/1.2));
+  const cPts  = Math.floor(pig.points * Math.min(1, Math.max(0,(statT-0.6))/1.2));
+  const cTot  = Math.floor(total * Math.min(1, Math.max(0,(statT-1.4))/1.0));
+  text('DISTANCIA', W/2-70, 80, 7, PAL.cream);  text(cDist+'m', W/2+70, 80, 9, PAL.pinkHi);
+  text('PUNTOS',    W/2-70, 100, 7, PAL.cream); text(''+cPts,  W/2+70, 100, 9, PAL.carrot);
+  cx.fillStyle = PAL.gold; cx.fillRect(W/2-120, 110, 240, 1);
+  text('TOTAL',     W/2-70, 128, 8, PAL.gold);  text(''+cTot,  W/2+70, 128, 12, PAL.gold);
+
+  if(newRecord && statT > 2.4 && (tGlobal*2|0)%2===0)
+    text('★ ¡NUEVO RÉCORD REAL! ★', W/2, 150, 9, PAL.gold);
+  if(statT > 2.4){
+    text('TOCA: NUEVO LANZAMIENTO', W/2, 168, 7, PAL.cream);
+    text('[R] RÉCORDS', W/2, 196, 7, PAL.cream);
+  }
+}
+
+function drawRecords(){
+  drawSky(); drawParallax(); camY = 40; drawTerrain();
+  panel(W/2-160, 22, 320, 210);
+  text('SALÓN DE LA FAMA', W/2, 44, 11, PAL.gold);
+  text('PORQUERIL', W/2, 58, 8, PAL.pinkHi);
+  if(records.length === 0){
+    text('Aún no hay cerdos voladores...', W/2, 120, 6, PAL.cream);
+    text('¡Sé el primero!', W/2, 136, 7, PAL.gold);
+  } else {
+    for(let i=0;i<records.length;i++){
+      const r = records[i], y = 82 + i*17;
+      const col = i===0?PAL.gold:(i===1?'#cfd4e0':(i===2?'#d08a4a':PAL.cream));
+      text((i+1)+'.', W/2-140, y, 7, col, false);
+      text(r.name, W/2-118, y, 7, col, false);
+      text(r.dist+'m', W/2+18, y, 7, col, false);
+      text('+'+r.pts, W/2+72, y, 7, col, false);
+      text(''+r.total, W/2+140-cx.measureText(''+r.total).width, y, 7, col, false);
+    }
+    text('POS  NOMBRE      DIST   PTS   TOTAL', W/2, 72, 5, PAL.grassHi);
+  }
+  text('TOCA PARA VOLVER', W/2, 248, 7, PAL.cream);
+}
+
+/* =====================================================================
+   BUCLE PRINCIPAL
+   ===================================================================== */
+let last = performance.now();
+resetTerrainInit();
+function withZoom(fn){
+  cx.save();
+  cx.translate(W/2, H/2);
+  cx.scale(zoom, zoom);
+  cx.translate(-W/2, -H/2);
+  fn();
+  cx.restore();
+}
+function loop(now){
+  let dt = Math.min(0.033, (now-last)/1000);
+  last = now; tGlobal += dt;
+
+  cx.save();
+  if(shake > 0) cx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
+
+  // bioma visible según el centro de la cámara
+  BIO = BIOMES[biomeIndexAt(camX + W*0.5)];
+
+  switch(state){
+    case ST.TITLE: drawTitle(); break;
+    case ST.LAUNCH:
+      updateZoom(dt); updateCam(dt);
+      withZoom(drawLaunch);
+      break;
+    case ST.PLAY:
+      physics(dt);
+      updateZoom(dt); updateCam(dt);
+      withZoom(()=>{
+        drawSky(); drawParallax();
+        (pig.mode==='FLIGHT' && pig.flightT < WATER_TIME) ? drawWaterTerrain() : drawTerrain();
+        drawItems();
+        drawFarmScene(); drawObstacles(); drawPig(); drawParticles(dt);
+      });
+      drawHUD(); // el HUD nunca se escala, siempre nítido
+      break;
+    case ST.DONE:
+      updateZoom(dt); updateCam(dt);
+      withZoom(()=>drawDone(dt));
+      break;
+    case ST.RECORDS: drawRecords(); break;
+  }
+  cx.restore();
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* =====================================================================
+   ENTRADA
+   ===================================================================== */
+const overlay = document.getElementById('nameOverlay');
+const nameInput = document.getElementById('nameInput');
+document.getElementById('nameOk').onclick = confirmName;
+nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') confirmName(); });
+let hasName = false;
+function confirmName(){
+  const v = nameInput.value.trim().toUpperCase();
+  playerName = v || 'SIR CERDO';
+  hasName = true;
+  overlay.style.display = 'none';
+  sfx.ui();
+  startRun();
+}
+
+function press(){
+  audio();
+  switch(state){
+    case ST.TITLE:
+      if(hasName){
+        sfx.ui();
+        startRun();
+      } else {
+        sfx.ui();
+        overlay.style.display = 'flex';
+        nameInput.value = '';
+        setTimeout(()=>nameInput.focus(), 50);
+      }
+      break;
+    case ST.LAUNCH: doLaunch(); pressed = true; break;
+    case ST.PLAY: pressed = true; break;
+    case ST.DONE:
+      if(statT > 2.4){
+        sfx.ui();
+        startRun(); // ya tenemos el nombre: se relanza directo, sin pedirlo de nuevo
+      }
+      break;
+    case ST.RECORDS: sfx.ui(); state = ST.TITLE; break;
+  }
+}
+function release(){ pressed = false; }
+
+cv.addEventListener('mousedown', e=>{ e.preventDefault(); press(); });
+addEventListener('mouseup', release);
+cv.addEventListener('touchstart', e=>{ e.preventDefault(); press(); }, {passive:false});
+addEventListener('touchend', e=>{ if(overlay.style.display!=='flex') e.preventDefault(); release(); }, {passive:false});
+addEventListener('keydown', e=>{
+  if(overlay.style.display==='flex') return;
+  if(e.code==='Space'){ e.preventDefault(); if(!pressed) press(); }
+  if(e.key==='r' || e.key==='R'){ if(state===ST.TITLE || state===ST.DONE){ sfx.ui(); state = ST.RECORDS; } }
+});
+addEventListener('keyup', e=>{ if(e.code==='Space') release(); });
+</script>
+</body>
+</html>
