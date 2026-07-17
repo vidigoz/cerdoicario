@@ -812,8 +812,12 @@ const pig = {
   x:0, y:0, vx:0, vy:0, grounded:false, spd:0, angle:0,
   points:0, combo:0, best:0, stopT:0, frame:0, fever:0,
   energy:100, dead:false, deadT:0, deathCause:'',
-  mode:'HILLS', flightT:0, bio:0, landAnnounced:false
+  mode:'HILLS', flightT:0, bio:0, landAnnounced:false,
+  waterTurbo:false, turboT:0
 };
+const TURBO_ALT = 46;       // px por encima del agua donde se activa el turbo
+const TURBO_TICK = 0.25;    // segundos entre cada +2 de puntos en turbo
+const TURBO_BOOST = 70;     // empuje extra de velocidad horizontal mientras dura el turbo
 const FLIGHT_GLIDE = 2.2;    // segundos de planeo automático al abrir las alas, antes de controlar
 let obstacles = [], obSpawnT = 0;
 
@@ -836,6 +840,7 @@ function startRun(){
   pig.points = 0; pig.combo = 0; pig.stopT = 0; pig.fever = 0; pig.best = 192;
   pig.energy = 100; pig.dead = false; pig.deadT = 0; pig.deathCause = '';
   pig.mode = 'HILLS'; pig.flightT = 0; pig.bio = 0; pig.angle = 0;
+  pig.waterTurbo = false; pig.turboT = 0;
   camX = 0; camY = 60; zoom = BASE_ZOOM;
   launchAnim = -1;
   state = ST.LAUNCH;
@@ -944,6 +949,25 @@ function physics(dt){
     // el viento bajo las alas mantiene el avance
     pig.vx += (330 - pig.vx) * 0.35 * dt;
     if(pig.vx < 240) pig.vx = 240;
+
+    // --- TURBO DE AGUA: volar bien pegado a la superficie del lago da velocidad
+    //     y puntos extra, a cambio del riesgo de tocarla y ahogarse ---
+    const wasTurbo = pig.waterTurbo;
+    pig.waterTurbo = isWaterAt(pig.x) && (groundY(pig.x) - pig.y) < TURBO_ALT;
+    if(pig.waterTurbo){
+      if(!wasTurbo){ pig.turboT = 0; floatText(pig.x, pig.y-24, '¡TURBO!', PAL.gold, true); }
+      pig.vx = Math.min(pig.vx + TURBO_BOOST*dt*4, 330 + TURBO_BOOST); // empuje suave hacia un tope, no acumulativo sin límite
+      pig.turboT += dt;
+      if(pig.turboT >= TURBO_TICK){
+        pig.turboT -= TURBO_TICK;
+        pig.points += 2;
+        floatText(pig.x, pig.y-14, '+2', PAL.gold, false);
+        if(Math.random() < 0.6) puff(pig.x-8, pig.y+6, 2, '#bfe8ff', 40, -10);
+      }
+    } else if(wasTurbo){
+      pig.turboT = 0;
+    }
+
     pig.x += pig.vx * dt;
     pig.y += pig.vy * dt;
     // inclinación: al caer (soltar) se inclina de nariz hacia abajo, como picada;
@@ -982,7 +1006,7 @@ function physics(dt){
         obSpawnT = 0.5 + Math.random()*0.75;
         const ox = pig.x + (W/zoom)*0.72;
         const g0 = groundY(ox);
-        const oy = g0 - 60 - Math.random()*370;
+        const oy = g0 - 60 - Math.random()*410; // cubre desde ras del agua hasta cerca del techo: no hay altura "segura"
         const r = Math.random();
         if(r < 0.58)      obstacles.push({x:ox, y:oy, type:'bird', vx:-(110+Math.random()*130), vy:0, ph:Math.random()*6.28});
         else if(r < 0.83) obstacles.push({x:ox, y:oy, type:'ufo',  vx:-(50+Math.random()*60),  vy:0, ph:Math.random()*6.28});
@@ -1527,6 +1551,12 @@ function drawPig(){
     for(let i=0;i<3;i++) cx.fillRect(px(sx-18-i*7), px(sy-14+i*5), 8, 1);
     cx.globalAlpha = 1;
   }
+  // estela de espuma del turbo de agua
+  if(!pig.dead && pig.waterTurbo){
+    cx.globalAlpha = 0.55; cx.fillStyle = '#bfe8ff';
+    for(let i=0;i<4;i++) cx.fillRect(px(sx-20-i*8), px(sy+8+Math.sin(tGlobal*10+i)*2), 6, 2);
+    cx.globalAlpha = 1;
+  }
 }
 
 const BARN_X = 150; // el granero queda justo al filo del risco (la bajada empieza en x=200)
@@ -1641,6 +1671,7 @@ function drawHUD(){
   cx.strokeStyle = PAL.cream; cx.lineWidth=1; cx.strokeRect(barX+.5,11.5,barW,9);
   text('ENERGÍA', W/2, 24, 5, low?PAL.red:PAL.cream);
   if(pig.combo >= 2) text('COMBO x'+pig.combo, W/2, 42, 9, PAL.gold);
+  if(pig.waterTurbo && (tGlobal*8|0)%2===0) text('¡TURBO!', W/2, 42, 9, '#6fc7e0');
   if(records.length) text('RECORD: '+records[0].total+' ('+records[0].name+')', W/2, H-8, 6, PAL.cream);
   // bioma actual y distancia a la próxima rampa
   text(BIOMES[pig.bio].name, 14, H-10, 6, PAL.gold, false);
