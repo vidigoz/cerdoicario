@@ -1073,18 +1073,26 @@ function physics(dt){
     // de fondo o el "despegue" (puff + oink) se dispara en cualquier curva
     // suave sin que haya un salto real perceptible.
     const kappa = curveAt(pig.x);           // negativo = cima convexa
-    let takeOff = false;
+    let takeOff = false, launchKick = 0;
     if(!R && kappa < -0.006 && pig.spd > 72){
       const RR = Math.pow(1+s*s, 1.5) / Math.abs(kappa);
       const centripetal = (pig.spd*pig.spd) / RR;
       const gravNormal = gEff / n;
-      if(centripetal > gravNormal * (pressed ? 1.9 : 1.0)) takeOff = true;
+      const thresh = gravNormal * (pressed ? 1.9 : 1.0);
+      if(centripetal > thresh){
+        takeOff = true;
+        // impulso extra hacia arriba, proporcional a cuánto se pasó del umbral:
+        // sin esto el vy tangencial es tan chico que la gravedad lo hace caer
+        // en 1-2 frames sobre la misma curva, y vuelve a despegar de inmediato
+        // (rebote repetido en vez de un salto real, una y otra vez)
+        launchKick = Math.min(220, (centripetal - thresh) * 0.09);
+      }
     }
 
     if(takeOff){
       pig.grounded = false;
       pig.vx = pig.spd / n;
-      pig.vy = pig.spd * s / n;
+      pig.vy = pig.spd * s / n - launchKick;
       puff(pig.x, pig.y-4, 10, PAL.cream, 90, -60);
       if(pig.spd > 208) sfx.oink();
     } else {
