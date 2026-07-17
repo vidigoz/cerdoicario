@@ -1067,9 +1067,14 @@ function physics(dt){
     }
 
     // --- ¿PIERDE CONTACTO CON EL SUELO? (física real de "coche sobre colina") ---
+    // el terreno ondulado normal ya tiene curvatura ligeramente negativa en
+    // casi todo momento (mediana ≈ -0.002); solo las cimas reales bajan de
+    // -0.006, así que el umbral debe quedar claramente por debajo del ruido
+    // de fondo o el "despegue" (puff + oink) se dispara en cualquier curva
+    // suave sin que haya un salto real perceptible.
     const kappa = curveAt(pig.x);           // negativo = cima convexa
     let takeOff = false;
-    if(!R && kappa < -0.0025 && pig.spd > 72){
+    if(!R && kappa < -0.006 && pig.spd > 72){
       const RR = Math.pow(1+s*s, 1.5) / Math.abs(kappa);
       const centripetal = (pig.spd*pig.spd) / RR;
       const gravNormal = gEff / n;
