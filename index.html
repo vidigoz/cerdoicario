@@ -681,7 +681,7 @@ function groundY(x){
       const yStart = baseGroundY(zStart);
       const yValley = yStart + APPR_DROP;   // valle de impulso al pie de la rampa
       const yLip = yValley - RAMP_H;        // punto más alto, al final de la rampa
-      const yWater = yLip + RAMP_H*0.55;    // nivel del lago: bien por debajo de la punta de la rampa
+      const yWater = yLip + RAMP_H*0.12;    // nivel del lago: pegado a la punta de la rampa, se ve al saltar
       const yLand = baseGroundY(waterEnd + LAND_LEN); // vuelve a coincidir con el terreno normal
       if(x < R - RAMP_LEN){
         // bajada de aproximación: de yStart a yValley
@@ -859,8 +859,11 @@ function doLaunch(){
 const GRAV = 620, DIVE = 1250, FRICTION = 0.10, MAXSPD = 760; // MAXSPD -20%
 
 function physics(dt){
-  // --- ENERGÍA: solo se consume en la fase de colinas; en vuelo se pausa ---
-  if(!pig.dead && pig.mode === 'HILLS'){
+  // --- ENERGÍA: se consume en colinas, y también en vuelo una vez que ya
+  //     hay tierra firme abajo (cruzó el lago) — así no puede volar eterno,
+  //     tiene que aterrizar para volver a comer. Sobre el lago se pausa,
+  //     porque cruzarlo es obligatorio y no depende de la habilidad del jugador. ---
+  if(!pig.dead && (pig.mode === 'HILLS' || (pig.mode === 'FLIGHT' && !isWaterAt(pig.x)))){
     const drain = 4.06 + (pressed ? 13.26 : 0);
     pig.energy = Math.max(0, pig.energy - drain*dt);
     if(pig.energy <= 0) triggerDeath('hambre');
@@ -891,6 +894,13 @@ function physics(dt){
       pig.y += 26 * dt;
       pig.vx *= Math.max(0, 1 - 3*dt);
       if(Math.random() < 6*dt) puff(pig.x + (Math.random()-0.5)*16, pig.y-2, 1, '#bfe8ff', 20, -10);
+    } else if(pig.deathCause === 'hambre' && pig.mode === 'FLIGHT'){
+      // sin energía las alas ya no lo sostienen: cae en caída libre hasta tocar tierra
+      pig.vy += 900 * dt;
+      pig.x += pig.vx * dt;
+      pig.y += pig.vy * dt;
+      const gy = groundY(pig.x);
+      if(pig.y >= gy - 3){ pig.y = gy - 3; pig.mode = 'HILLS'; }
     }
     if(pig.deadT > 1.5 && state === ST.PLAY) finishRun();
   }
