@@ -809,12 +809,13 @@ let pressed = false;
 let tGlobal = 0;
 
 const pig = {
-  x:0, y:0, vx:0, vy:0, grounded:false, spd:0, angle:0,
+  x:0, y:0, vx:0, vy:0, grounded:false, spd:0, angle:0, facing:1,
   points:0, combo:0, best:0, stopT:0, frame:0, fever:0,
   energy:100, dead:false, deadT:0, deathCause:'',
   mode:'HILLS', flightT:0, bio:0, landAnnounced:false,
   waterTurbo:false, turboT:0
 };
+const FACE_SPD_THRESHOLD = 15; // por debajo de esta |spd| conserva la orientación anterior, para no titilar
 const TURBO_ALT = 46;       // px por encima del agua donde se activa el turbo
 const TURBO_TICK = 0.25;    // segundos entre cada +2 de puntos en turbo
 const TURBO_BOOST = 70;     // empuje extra de velocidad horizontal mientras dura el turbo
@@ -836,7 +837,7 @@ function startRun(){
   // el cerdo empieza parado en el borde del techo, justo al filo del risco
   const barnBase = groundY(BARN_X);
   pig.x = 192; pig.y = barnBase - 50;
-  pig.vx = 0; pig.vy = 0; pig.grounded = false; pig.spd = 0;
+  pig.vx = 0; pig.vy = 0; pig.grounded = false; pig.spd = 0; pig.facing = 1;
   pig.points = 0; pig.combo = 0; pig.stopT = 0; pig.fever = 0; pig.best = 192;
   pig.energy = 100; pig.dead = false; pig.deadT = 0; pig.deathCause = '';
   pig.mode = 'HILLS'; pig.flightT = 0; pig.bio = 0; pig.angle = 0;
@@ -1048,6 +1049,10 @@ function physics(dt){
     // la gravedad puede frenarlo hasta hacerlo retroceder en una subida;
     // eso está bien, solo morir termina la partida (no detenerse/retroceder)
     pig.spd = Math.max(-MAXSPD, Math.min(MAXSPD, pig.spd));
+    // orientación del sprite: mira hacia donde avanza; cerca de spd=0 conserva
+    // la última dirección para no titilar de un lado a otro
+    if(pig.spd > FACE_SPD_THRESHOLD) pig.facing = 1;
+    else if(pig.spd < -FACE_SPD_THRESHOLD) pig.facing = -1;
 
     const vxg = pig.spd / n;
     const newX = pig.x + vxg * dt;
@@ -1519,6 +1524,8 @@ function drawPig(){
   cx.translate(px(sx), px(sy-7));
   // ahogándose: cabecea de lado en vez de voltearse panza arriba como en tierra
   cx.rotate(pig.dead ? (drowning ? Math.sin(pig.deadT*2.4)*0.35 + Math.PI*0.5 : Math.PI) : pig.angle);
+  // en tierra, mira hacia la dirección real en la que avanza (adelante o retrocediendo en una subida)
+  if(!pig.dead && pig.grounded && pig.facing < 0) cx.scale(-1, 1);
   // aura de fiebre (combos)
   if(!pig.dead && pig.fever >= 2 && (tGlobal*10|0)%2===0){
     cx.globalAlpha = 0.5;
