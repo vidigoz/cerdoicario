@@ -123,6 +123,7 @@
    ===================================================================== */
 'use strict';
 
+const GAME_VERSION = '0.0.1';
 const W = 480, H = 270;
 const cv = document.getElementById('game');
 const cx = cv.getContext('2d');
@@ -1698,6 +1699,7 @@ function drawTitle(){
       text(''+r.total, W/2+124-cx.measureText(''+r.total).width, y, 6, col, false);
     }
   }
+  text('v'+GAME_VERSION, 8, H-8, 5, PAL.pinkHi, false);
 }
 
 function drawLaunch(){
