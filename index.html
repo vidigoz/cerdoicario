@@ -1772,28 +1772,35 @@ function drawDone(dt){
 
 function drawRecords(){
   drawSky(); drawParallax(); camY = 40; drawTerrain();
-  panel(W/2-160, 22, 320, 210);
-  text('SALÓN DE LA FAMA', W/2, 44, 11, PAL.gold);
-  text('RANKING MUNDIAL TOP 10', W/2, 58, 6, PAL.pinkHi);
+  panel(W/2-160, 14, 320, 240);
+  text('SALÓN DE LA FAMA', W/2, 32, 11, PAL.gold);
+  text('RANKING MUNDIAL TOP 10', W/2, 46, 6, PAL.pinkHi);
   if(recordsLoading){
     text('Cargando ranking...', W/2, 130, 7, PAL.cream);
   } else if(records.length === 0){
     text('Aún no hay cerdos voladores...', W/2, 120, 6, PAL.cream);
     text('¡Sé el primero!', W/2, 136, 7, PAL.gold);
   } else {
+    // columnas por posición X fija, alineadas con las filas de abajo (no
+    // se puede alinear a espacios porque la fuente no es monoespaciada)
+    const cPos = W/2-146, cFlag = W/2-124, cName = W/2-104, cDist = W/2+22, cPts = W/2+68, cTotal = W/2+140;
+    text('POS', cPos, 58, 5, PAL.grassHi, false);
+    text('NOMBRE', cName, 58, 5, PAL.grassHi, false);
+    text('DIST', cDist, 58, 5, PAL.grassHi, false);
+    text('PTS', cPts, 58, 5, PAL.grassHi, false);
+    text('TOTAL', cTotal-cx.measureText('TOTAL').width, 58, 5, PAL.grassHi, false);
     for(let i=0;i<records.length;i++){
-      const r = records[i], y = 82 + i*17;
+      const r = records[i], y = 70 + i*17;
       const col = i===0?PAL.gold:(i===1?'#cfd4e0':(i===2?'#d08a4a':PAL.cream));
-      text((i+1)+'.', W/2-146, y, 7, col, false);
-      flagText(countryToFlag(r.country), W/2-124, y+4, 10, false);
-      text(r.name, W/2-104, y, 7, col, false);
-      text(r.dist+'m', W/2+22, y, 6, col, false);
-      text('+'+r.pts, W/2+70, y, 6, col, false);
-      text(''+r.total, W/2+140-cx.measureText(''+r.total).width, y, 7, col, false);
+      text((i+1)+'.', cPos, y, 7, col, false);
+      flagText(countryToFlag(r.country), cFlag, y+4, 10, false);
+      text(r.name, cName, y, 7, col, false);
+      text(r.dist+'m', cDist, y, 6, col, false);
+      text('+'+r.pts, cPts, y, 6, col, false);
+      text(''+r.total, cTotal-cx.measureText(''+r.total).width, y, 7, col, false);
     }
-    text('POS      NOMBRE     DIST   PTS  TOTAL', W/2, 72, 5, PAL.grassHi);
   }
-  text('TOCA PARA VOLVER', W/2, 248, 7, PAL.cream);
+  text('TOCA PARA VOLVER', W/2, 262, 7, PAL.cream);
 }
 
 /* =====================================================================
