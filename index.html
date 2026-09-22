@@ -2242,7 +2242,9 @@ function loop(now){
     case ST.DONE:
       updateZoom(dt); updateCam(dt);
       withZoom(()=>drawDone(dt));
-      if(statT > 4.5 && !recordsLoading) openRecords();
+      // ya NO salta solo al ranking tras unos segundos: con el botón
+      // "GUARDAR PUNTUACIÓN" (ver openSaveScore), el jugador necesita
+      // tiempo para decidir si guardar o no antes de que algo lo interrumpa
       break;
     case ST.RECORDS: drawRecords(); break;
   }
