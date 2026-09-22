@@ -37,6 +37,13 @@
   #nameBox button { font-family:inherit; font-size:12px; margin-top:14px; padding:10px 18px; cursor:pointer;
     background:#b8452c; color:#ffe9c9; border:3px solid #f2d16b; }
   #nameBox button:hover { background:#d95f38; }
+  /* --- "seguir sin guardar": acción secundaria, discreta, bajo el botón
+     principal. #nameBox #nameSkip (en vez de #nameSkip a secas) para igualar
+     la especificidad de "#nameBox button" de arriba y así sobreescribirla,
+     ya que viene después en el archivo. --- */
+  #nameBox #nameSkip { display:block; margin:12px auto 0; font-family:inherit; font-size:8px; cursor:pointer;
+    background:none; color:#c9b8a8; border:none; text-decoration:underline; padding:6px; }
+  #nameBox #nameSkip:hover { color:#f5ecd7; }
   /* --- botón de engrane (ajustes de audio): esquina, visible en título/game-over --- */
   #settingsGear { position:fixed; top:calc(10px + env(safe-area-inset-top)); right:calc(10px + env(safe-area-inset-right));
     z-index:8; width:36px; height:36px; font-size:18px; line-height:1; cursor:pointer;
@@ -54,12 +61,17 @@
   /* --- botones de "ranking" y "tutorial" del título: posicionados por JS
      (positionOverlayBtns) siguiendo el rect real del canvas escalado, para
      quedar alineados con el contenido dibujado dentro sin importar el zoom --- */
-  #rankingBtn, #tutorialBtn { position:fixed; z-index:8; font-family:inherit; font-size:6px;
+  #rankingBtn, #tutorialBtn, #saveScoreBtn { position:fixed; z-index:8; font-family:inherit; font-size:6px;
     line-height:1; cursor:pointer; padding:5px 8px; white-space:nowrap;
     background:#3a2a44; color:#f2d16b; border:2px solid #f2d16b; border-radius:5px;
     display:none; align-items:center; justify-content:center; touch-action:manipulation; }
-  #rankingBtn.show, #tutorialBtn.show { display:flex; }
-  #rankingBtn:hover, #tutorialBtn:hover { background:#4a3556; }
+  #rankingBtn.show, #tutorialBtn.show, #saveScoreBtn.show { display:flex; }
+  #rankingBtn:hover, #tutorialBtn:hover, #saveScoreBtn:hover { background:#4a3556; }
+  /* botón de guardar: dorado sólido, para que destaque como la acción
+     principal deseada en la pantalla de resultados (a diferencia de
+     ranking/tutorial, que son secundarios) */
+  #saveScoreBtn { background:#f2d16b; color:#3a2a44; }
+  #saveScoreBtn:hover { background:#ffe08a; }
   #settingsOverlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:rgba(10,6,16,.75); z-index:11; }
   #settingsOverlay.show { display:flex; }
@@ -100,7 +112,7 @@
 
 <div id="nameOverlay">
   <div id="nameBox">
-    <h2>NOMBRE DEL LANZADOR</h2>
+    <h2>GUARDAR PUNTUACIÓN</h2>
     <input id="nameInput" maxlength="10" placeholder="SIR CERDO">
     <div id="countryRow">
       <input id="countryInput" maxlength="2" placeholder="MX">
@@ -108,7 +120,8 @@
     </div>
     <div id="countryHint">Código de país (MX, US, ES...)</div>
     <br>
-    <button id="nameOk">¡A VOLAR!</button>
+    <button id="nameOk">GUARDAR</button>
+    <button id="nameSkip">seguir sin guardar</button>
   </div>
 </div>
 
@@ -132,6 +145,7 @@
 <button id="skipTutBtn" aria-label="Saltar tutorial">OMITIR TUTORIAL ✕</button>
 <button id="rankingBtn" aria-label="Ver ranking">🏆 RANKING</button>
 <button id="tutorialBtn" aria-label="Ver tutorial">▶ TUTORIAL</button>
+<button id="saveScoreBtn" aria-label="Guardar puntuación">💾 GUARDAR PUNTUACIÓN</button>
 
 <script>
 /* =====================================================================
@@ -879,8 +893,22 @@ loadRecords();
    ===================================================================== */
 const ST = { TITLE:0, LAUNCH:1, PLAY:2, DONE:3, RECORDS:4, TUTORIAL:5 };
 let state = ST.TITLE;
-let playerName = 'SIR CERDO';
-let playerCountry = 'MX';
+// nombre/país solo se piden al GUARDAR una puntuación (no al empezar a
+// jugar, ver press() en ST.TITLE) — se recuerdan en localStorage para no
+// tener que retiparlos cada vez que sí se quiere guardar
+const PLAYER_NAME_KEY = 'cerdoicario-player-name', PLAYER_COUNTRY_KEY = 'cerdoicario-player-country';
+function loadSavedPlayer(){
+  try{
+    return { name: localStorage.getItem(PLAYER_NAME_KEY) || 'SIR CERDO',
+             country: localStorage.getItem(PLAYER_COUNTRY_KEY) || 'MX' };
+  }catch(e){ return { name:'SIR CERDO', country:'MX' }; }
+}
+function saveSavedPlayer(name, country){
+  try{ localStorage.setItem(PLAYER_NAME_KEY, name); localStorage.setItem(PLAYER_COUNTRY_KEY, country); }catch(e){}
+}
+const savedPlayer = loadSavedPlayer();
+let playerName = savedPlayer.name;
+let playerCountry = savedPlayer.country;
 let pressed = false;
 let tGlobal = 0;
 
@@ -963,6 +991,7 @@ let settingsGearShown = false;
 let skipTutBtnShown = false;
 let rankingBtnShownPrev = false;
 let tutorialBtnShownPrev = false;
+let saveScoreBtnShownPrev = false;
 let overlayBtnsStatePrev = -1;
 
 function startRun(){
@@ -1411,17 +1440,12 @@ function triggerDeath(cause){
   shake = 4;
 }
 
-async function finishRun(){
+function finishRun(){
   if(tutorialActive){ retryTutorialFlight(); return; }
   state = ST.DONE;
   resultT = 0; statT = 0; newRecord = false;
+  recordSaved = false; // esta partida todavía no se guardó — ver openSaveScore/confirmName
   sfx.stop();
-  const dist = pig.best/4;
-  const isNew = await addRecord(playerName, playerCountry, dist, pig.points);
-  if(state === ST.DONE){       // el jugador podría haber relanzado ya
-    newRecord = isNew;
-    if(newRecord) setTimeout(()=>sfx.record(), 700);
-  }
 }
 // en el tutorial nunca hay pantalla de derrota: si toca el agua o choca en
 // pleno vuelo, vuelve a la punta de la rampa con energía llena a reintentar
@@ -1474,81 +1498,146 @@ function updateCam(dt){
    ===================================================================== */
 function px(n){ return Math.round(n); }
 
+// el cielo (y las capas lejanas de drawParallax) se dibujan SIEMPRE a
+// escala 1:1, sin importar si el caller está dentro de withZoom() (que
+// aplica scale(zoom) para el terreno/cerdo en primer plano): un fondo
+// "de verdad" lejano no debería respirar cada vez que el zoom se aleja al
+// volar alto — eso es lo que se sentía como movimiento raro. setTransform
+// a identidad anula cualquier translate/scale acumulado, sin importar
+// cuántos niveles de save() estén activos por encima.
+function withFlatBackground(fn){
+  cx.save();
+  cx.setTransform(1,0,0,1,0,0);
+  fn();
+  cx.restore();
+}
+
 function drawSky(){
-  const mx = viewMX, my = viewMY;
-  const g = cx.createLinearGradient(0,-my,0,H+my);
+  withFlatBackground(()=>{
+  const g = cx.createLinearGradient(0,0,0,H);
   g.addColorStop(0, BIO.sky[0]); g.addColorStop(0.45, BIO.sky[1]);
   g.addColorStop(0.78, BIO.sky[2]); g.addColorStop(1, BIO.sky[3]);
-  cx.fillStyle = g; cx.fillRect(-mx,-my,W+mx*2,H+my*2);
+  cx.fillStyle = g; cx.fillRect(0,0,W,H);
   // bandas dither retro
   cx.globalAlpha = 0.08;
-  for(let y=-my|0;y<H+my;y+=4){ cx.fillStyle = y%8?'#000':'#fff'; cx.fillRect(-mx,y,W+mx*2,1); }
+  for(let y=0;y<H;y+=4){ cx.fillStyle = y%8?'#000':'#fff'; cx.fillRect(0,y,W,1); }
   cx.globalAlpha = 1;
-  // sol
+  // sol — parallax mínimo, casi fijo, para dar algo de vida sin que "respire" con el zoom
   const sx = W-88 - camX*0.01, sy = 62 + camY*0.02;
   cx.fillStyle = PAL.sun; cx.beginPath(); cx.arc(sx,sy,22,0,7); cx.fill();
   cx.fillStyle = PAL.sunCore; cx.beginPath(); cx.arc(sx,sy,15,0,7); cx.fill();
-  // nubes — envuelven sobre todo el ancho visible, incluido el margen del zoom
+  // nubes
   cx.fillStyle = PAL.cloud;
-  const cloudSpan = W + mx*2 + 160;
+  const cloudSpan = W + 160;
   for(let i=0;i<9;i++){
-    const cxp = ((i*173 + 40 - camX*0.06) % cloudSpan) - 80 - mx;
+    const cxp = ((i*173 + 40 - camX*0.06) % cloudSpan) - 80;
     const cyp = 30 + (i*37)%70 + camY*0.03;
     cx.globalAlpha = 0.75;
     cx.fillRect(px(cxp),px(cyp),34,7); cx.fillRect(px(cxp+6),px(cyp-4),20,4); cx.fillRect(px(cxp+8),px(cyp+7),18,4);
   }
   cx.globalAlpha = 1;
+  });
 }
 
-function drawParallax(){
-  const mx = viewMX, my = viewMY;
+// altura de una capa de colinas de fondo en la posición de MUNDO wx: seno
+// determinístico (misma entrada = misma silueta siempre), varias capas se
+// diferencian solo por amplitud/longitud de onda/fase, así no hacen falta
+// datos por bioma nuevos — silueta plana estilo Tiny Wings, un tono por
+// capa. SIN relación con groundY/camY/zoom: es un telón de fondo fijo, el
+// terreno jugable real se dibuja encima y la tapa donde corresponda.
+function hillLayerY(wx, baseY, amp, wavelen, phase){
+  return baseY - amp*0.5 - Math.sin(wx/wavelen + phase)*amp*0.5
+               - Math.sin(wx/(wavelen*0.37) + phase*1.7)*amp*0.18;
+}
 
-  // --- pastizal plano de fondo, sin colinas (estilo Super Mario World) ---
-  const plainY = 176 + camY*0.22;
-  cx.fillStyle = BIO.plain;
-  cx.fillRect(-mx, plainY, W+mx*2, (H+my) - plainY + my);
-  // franja de sombra suave justo debajo del horizonte, para dar sensación de profundidad
-  cx.fillStyle = BIO.plainShade;
-  cx.fillRect(-mx, plainY+10, W+mx*2, 14);
-  cx.fillStyle = BIO.plainEdge;
-  cx.fillRect(-mx, plainY, W+mx*2, 3);
+// una capa completa: color plano, parallax propio, con castillos ocasionales
+// apoyados en la misma silueta. Se dibuja siempre a escala 1:1 (llamada
+// desde dentro de withFlatBackground): "toda la pantalla" es [0,W]×[0,H].
+function drawHillLayer(color, castleColor, baseY, amp, wavelen, phase, parallax, castleSpace){
+  const off = camX*parallax;
 
-  // --- bosques distantes: grupos de árboles repartidos con espacio regular ---
-  const foreSpace = 230, foreParallax = 0.34;
-  const foreOff = camX*foreParallax;
-  const f0 = Math.floor((foreOff-mx)/foreSpace)-1, f1 = Math.ceil((foreOff+W+mx)/foreSpace)+1;
-  for(let i=f0;i<f1;i++){
-    if(rand01(i*0.91) < 0.28) continue; // deja huecos de puro pastizal entre bosques
-    const wx = i*foreSpace + (rand01(i*3.7)-0.5)*70;
-    const sx = wx - foreOff;
-    if(sx < -mx-40 || sx > W+mx+40) continue;
-    const n = 3 + Math.floor(rand01(i*1.3)*3); // 3–5 árboles por grupo
-    for(let t=0;t<n;t++){
-      const tx = sx + (t-(n-1)/2)*13 + (rand01(i*7+t)-0.5)*5;
-      const th = 15 + rand01(i*5+t)*11;
-      drawPineTree(tx, plainY+6, th);
+  // castillos ocasionales: uno cada castleSpace±, con hueco aleatorio entre
+  // medio para que no salgan siempre en fila; apoyados en hillLayerY real
+  if(castleSpace){
+    const c0 = Math.floor(off/castleSpace)-1, c1 = Math.ceil((off+W)/castleSpace)+1;
+    for(let c=c0;c<c1;c++){
+      if(rand01(c*5.3+phase) < 0.45) continue; // no todas las ranuras tienen castillo
+      const wx = c*castleSpace + castleSpace*0.5 + (rand01(c*2.3+phase)-0.5)*castleSpace*0.3;
+      const sx = wx - off;
+      if(sx < -60 || sx > W+60) continue;
+      const scale = 0.6 + rand01(c*4.1+phase)*0.4;
+      drawSilhouetteCastle(sx, hillLayerY(wx, baseY, amp, wavelen, phase), scale, castleColor);
     }
   }
 
-  // --- castillo principal del torneo (cerca de la salida) ---
-  const castX = 260 - (camX*0.18)%900, castY = 128 + camY*0.08;
-  cx.fillStyle = PAL.castle;
-  cx.fillRect(px(castX),px(castY),70,70);
-  cx.fillRect(px(castX-14),px(castY-18),18,88); cx.fillRect(px(castX+66),px(castY-18),18,88);
-  for(let i=0;i<4;i++){ cx.fillRect(px(castX-14+i*5),px(castY-24),3,6); cx.fillRect(px(castX+66+i*5),px(castY-24),3,6); }
-  for(let i=0;i<7;i++) cx.fillRect(px(castX+2+i*10),px(castY-6),4,6);
-  cx.fillStyle = PAL.red; cx.fillRect(px(castX-9),px(castY-32),1,14); cx.fillRect(px(castX-8),px(castY-32),7,5);
+  // silueta de la colina: un solo trazo relleno, sin detalle interno
+  cx.fillStyle = color;
+  cx.beginPath();
+  cx.moveTo(0, H);
+  const step = 6;
+  for(let sx=0; sx<=W; sx+=step) cx.lineTo(sx, hillLayerY(sx+off, baseY, amp, wavelen, phase));
+  cx.lineTo(W, H);
+  cx.closePath(); cx.fill();
+}
 
-  // --- castillos lejanos repartidos a lo largo del recorrido ---
-  const castSpace = 1500, castParallax = 0.15;
-  const castOff = camX*castParallax;
-  const c0 = Math.floor((castOff-mx)/castSpace)-1, c1 = Math.ceil((castOff+W+mx)/castSpace)+1;
-  for(let c=c0;c<c1;c++){
-    const wx = c*castSpace + 500 + (rand01(c*2.3)-0.5)*160;
-    const sx = wx - castOff;
-    if(sx < -mx-60 || sx > W+mx+60) continue;
-    drawDistantCastle(sx, plainY, 0.7 + rand01(c*4.1)*0.35);
+function drawParallax(){
+  // --- fondo: cielo (drawSky) + 3 capas de colinas silueteadas, TODAS
+  // completamente FIJAS — sin zoom, sin seguir camY ni pig.y para nada.
+  // Es un telón de fondo pintado: solo se desliza horizontalmente y muy
+  // despacio (parallax) conforme el cerdo avanza en X. El terreno jugable
+  // real (drawTerrain, que sí se mueve con la cámara) se dibuja ENCIMA de
+  // esto después y lo tapa donde haga falta — por eso no hace falta que
+  // esta capa "sepa" dónde está el terreno real ni se recorte contra él.
+  withFlatBackground(()=>{
+    drawHillLayer(mix(BIO.sky[1], BIO.sky[0], 0.45), mix(BIO.sky[1],BIO.sky[0],0.7), H*0.40, 34, 260, 0.7,  0.10, 1400);
+    drawHillLayer(mix(BIO.sky[2], BIO.sky[1], 0.35), mix(BIO.sky[2],BIO.sky[1],0.6), H*0.58, 26, 190, 3.1,  0.20, 900);
+    drawHillLayer(BIO.plain,                         mix(BIO.plain,'#000000',0.22), H*0.80, 20, 130, 5.8,  0.34, 500);
+
+    // árboles: mismo trato, apoyados en la silueta fija de esta última
+    // capa (no en el terreno real) — pura decoración de fondo quieto
+    const foreSpace = 230, foreParallax = 0.34;
+    const foreOff = camX*foreParallax;
+    const f0 = Math.floor(foreOff/foreSpace)-1, f1 = Math.ceil((foreOff+W)/foreSpace)+1;
+    for(let i=f0;i<f1;i++){
+      if(rand01(i*0.91) < 0.28) continue; // deja huecos de puro pastizal entre bosques
+      const wx = i*foreSpace + (rand01(i*3.7)-0.5)*70;
+      const sx = wx - foreOff;
+      if(sx < -40 || sx > W+40) continue;
+      const groundHereY = hillLayerY(wx, H*0.80, 20, 130, 5.8);
+      const n = 3 + Math.floor(rand01(i*1.3)*3); // 3–5 árboles por grupo
+      for(let t=0;t<n;t++){
+        const tx = sx + (t-(n-1)/2)*13 + (rand01(i*7+t)-0.5)*5;
+        const th = 15 + rand01(i*5+t)*11;
+        drawPineTree(tx, groundHereY+6, th);
+      }
+    }
+  });
+}
+
+// mezcla dos colores hex ("#rrggbb") en proporción t (0=a, 1=b) — usado para
+// derivar los tonos de cada capa de fondo a partir del color de horizonte
+// del bioma actual, sin tener que declarar paletas nuevas por capa/bioma
+function mix(a, b, t){
+  const pa = parseInt(a.slice(1),16), pb = parseInt(b.slice(1),16);
+  const ar=(pa>>16)&255, ag=(pa>>8)&255, ab=pa&255;
+  const br=(pb>>16)&255, bg=(pb>>8)&255, bb=pb&255;
+  const r = Math.round(ar+(br-ar)*t), g = Math.round(ag+(bg-ag)*t), bcol = Math.round(ab+(bb-ab)*t);
+  return '#'+[r,g,bcol].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+
+// silueta de castillo plana, un solo tono (sin detalle interno) — usada por
+// las capas de fondo; distinta de drawDistantCastle (que ya no se usa)
+function drawSilhouetteCastle(x, baseY, scale, color){
+  const w = 40*scale, h = 40*scale, tW = 11*scale, tH = 13*scale;
+  cx.fillStyle = color;
+  cx.fillRect(px(x-w/2), px(baseY-h), w, h);
+  cx.fillRect(px(x-w/2-tW), px(baseY-h-tH), tW, h+tH);
+  cx.fillRect(px(x+w/2), px(baseY-h-tH), tW, h+tH);
+  for(let i=0;i<3;i++){
+    cx.fillRect(px(x-w/2-tW+i*4*scale), px(baseY-h-tH-4*scale), 3*scale, 5*scale);
+    cx.fillRect(px(x+w/2+i*4*scale), px(baseY-h-tH-4*scale), 3*scale, 5*scale);
   }
+  for(let i=0;i<5;i++) cx.fillRect(px(x-w/2+2*scale+i*8*scale), px(baseY-h-3*scale), 5*scale, 5*scale);
 }
 
 // pequeño ruido pseudoaleatorio determinístico (mismo índice = mismo resultado siempre)
@@ -1572,24 +1661,6 @@ function drawPineTree(x, groundY, h){
   cx.closePath(); cx.fill();
   cx.fillStyle = PAL.woodDk;
   cx.fillRect(px(x-2), px(groundY-5), 4, 7);
-}
-
-function drawDistantCastle(x, groundY, scale){
-  const w = 46*scale, h = 44*scale, tW = 12*scale, tH = 14*scale;
-  const baseY = groundY;
-  cx.fillStyle = PAL.castleFar;
-  cx.fillRect(px(x-w/2), px(baseY-h), w, h);
-  cx.fillRect(px(x-w/2-tW), px(baseY-h-tH), tW, h+tH);
-  cx.fillRect(px(x+w/2), px(baseY-h-tH), tW, h+tH);
-  cx.fillStyle = PAL.castle;
-  for(let i=0;i<3;i++){
-    cx.fillRect(px(x-w/2-tW+i*4*scale), px(baseY-h-tH-4*scale), 3*scale, 5*scale);
-    cx.fillRect(px(x+w/2+i*4*scale), px(baseY-h-tH-4*scale), 3*scale, 5*scale);
-  }
-  for(let i=0;i<5;i++) cx.fillRect(px(x-w/2+2*scale+i*8*scale), px(baseY-h-3*scale), 5*scale, 5*scale);
-  cx.fillStyle = PAL.red;
-  cx.fillRect(px(x-w/2-tW-4*scale), px(baseY-h-tH-24*scale), 1, 12*scale);
-  cx.fillRect(px(x-w/2-tW-3*scale), px(baseY-h-tH-24*scale), 5*scale, 4*scale);
 }
 
 /* --- AGUA: reemplaza visualmente el terreno durante los primeros 15s de
@@ -1760,13 +1831,6 @@ function drawPig(){
   cx.rotate(pig.dead ? (drowning ? Math.sin(pig.deadT*2.4)*0.35 + Math.PI*0.5 : Math.PI) : pig.angle);
   // en tierra, mira hacia la dirección real en la que avanza (adelante o retrocediendo en una subida)
   if(!pig.dead && pig.grounded && pig.facing < 0) cx.scale(-1, 1);
-  // aura de fiebre (combos)
-  if(!pig.dead && pig.fever >= 2 && (tGlobal*10|0)%2===0){
-    cx.globalAlpha = 0.5;
-    cx.fillStyle = pig.fever>=3 ? PAL.gold : PAL.cream;
-    cx.fillRect(-14,-11,28,22);
-    cx.globalAlpha = 1;
-  }
   let spr;
   if(pig.dead) spr = PIG_DEAD;
   else if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE)
@@ -1798,6 +1862,20 @@ function drawPig(){
   if(!pig.dead && pig.waterTurbo){
     cx.globalAlpha = 0.55; cx.fillStyle = '#bfe8ff';
     for(let i=0;i<4;i++) cx.fillRect(px(sx-20-i*8), px(sy+8+Math.sin(tGlobal*10+i)*2), 6, 2);
+    cx.globalAlpha = 1;
+  }
+  // estela de fiebre (combos): antes era un cuadro sólido semitransparente
+  // encima del cerdo (se leía como un glitch/bug); ahora son motitas que
+  // se van quedando atrás y desvaneciendo, como el resto de las estelas de
+  // arriba — mismo estilo, mismo patrón de dibujo, sin partículas nuevas
+  if(!pig.dead && pig.fever >= 2){
+    cx.globalAlpha = 0.6; cx.fillStyle = pig.fever>=3 ? PAL.gold : PAL.cream;
+    for(let i=0;i<3;i++){
+      const t = tGlobal*6 + i*2.1;
+      const trailX = sx - 10 - i*8 - pig.facing*i*2;
+      const trailY = sy - 4 + Math.sin(t)*4 - i*1.5;
+      cx.fillRect(px(trailX), px(trailY), 2+((i+ (tGlobal*4|0))%2), 2+((i+ (tGlobal*4|0))%2));
+    }
     cx.globalAlpha = 1;
   }
 }
@@ -2128,11 +2206,15 @@ function loop(now){
   // táctiles, sin atajos de teclado (el juego es para móvil)
   const rankingShown = state===ST.TITLE || (state===ST.DONE && statT > 2.4);
   const tutorialBtnShown = state===ST.TITLE;
-  if(rankingShown !== rankingBtnShownPrev || tutorialBtnShown !== tutorialBtnShownPrev || state !== overlayBtnsStatePrev){
-    rankingBtnShownPrev = rankingShown; tutorialBtnShownPrev = tutorialBtnShown; overlayBtnsStatePrev = state;
+  // guardar puntuación: solo en resultados, y solo mientras esta partida no
+  // se haya guardado ya (evita mostrarlo de nuevo tras confirmar el nombre)
+  const saveScoreShown = state===ST.DONE && statT > 2.4 && !recordSaved;
+  if(rankingShown !== rankingBtnShownPrev || tutorialBtnShown !== tutorialBtnShownPrev || saveScoreShown !== saveScoreBtnShownPrev || state !== overlayBtnsStatePrev){
+    rankingBtnShownPrev = rankingShown; tutorialBtnShownPrev = tutorialBtnShown; saveScoreBtnShownPrev = saveScoreShown; overlayBtnsStatePrev = state;
     rankingBtn.classList.toggle('show', rankingShown);
     tutorialBtn.classList.toggle('show', tutorialBtnShown);
-    if(rankingShown || tutorialBtnShown) positionOverlayBtns();
+    saveScoreBtn.classList.toggle('show', saveScoreShown);
+    if(rankingShown || tutorialBtnShown || saveScoreShown) positionOverlayBtns();
   }
 
   switch(state){
@@ -2178,42 +2260,48 @@ const nameInput = document.getElementById('nameInput');
 const countryInput = document.getElementById('countryInput');
 const countryFlag = document.getElementById('countryFlag');
 document.getElementById('nameOk').onclick = confirmName;
+document.getElementById('nameSkip').onclick = closeNameOverlay;
 nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') countryInput.focus(); });
 countryInput.addEventListener('input', ()=>{
   countryInput.value = countryInput.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,2);
   countryFlag.textContent = countryToFlag(countryInput.value);
 });
 countryInput.addEventListener('keydown', e=>{ if(e.key==='Enter') confirmName(); });
-let hasName = false;
-function confirmName(){
+// el nombre/país ya NO se piden para arrancar a jugar — solo cuando el
+// jugador elige GUARDAR su puntuación al final (ver openSaveScore), para
+// no llenar el ranking de nombres al azar de gente que solo quería probar
+let recordSaved = false; // ya se guardó (o se descartó) el resultado de ESTA partida
+function openSaveScore(){
+  sfx.ui();
+  overlay.style.display = 'flex';
+  nameInput.value = playerName === 'SIR CERDO' ? '' : playerName;
+  countryInput.value = playerCountry;
+  countryFlag.textContent = countryToFlag(playerCountry);
+  setTimeout(()=>nameInput.focus(), 50);
+}
+function closeNameOverlay(){ sfx.ui(); overlay.style.display = 'none'; }
+async function confirmName(){
   const v = nameInput.value.trim().toUpperCase();
   const c = countryInput.value.trim().toUpperCase();
   playerName = v || 'SIR CERDO';
   playerCountry = /^[A-Z]{2}$/.test(c) ? c : 'MX';
-  hasName = true;
+  saveSavedPlayer(playerName, playerCountry);
   overlay.style.display = 'none';
   sfx.ui();
-  if(pendingTutorialAfterName){ pendingTutorialAfterName = false; openTutorialIntro(); }
-  else startRun();
+  // guarda el resultado de la partida que se acaba de jugar (ver finishRun,
+  // que ya NO llama a addRecord automáticamente)
+  const dist = pig.best/4;
+  const isNew = await addRecord(playerName, playerCountry, dist, pig.points);
+  recordSaved = true;
+  if(state === ST.DONE){ newRecord = isNew; if(newRecord) sfx.record(); }
 }
 
-let pendingTutorialAfterName = false;
 function press(){
   audio();
   switch(state){
     case ST.TITLE:
-      if(hasName){
-        sfx.ui();
-        if(!hasSeenTutorial()) openTutorialIntro(); else startRun();
-      } else {
-        sfx.ui();
-        pendingTutorialAfterName = !hasSeenTutorial();
-        overlay.style.display = 'flex';
-        nameInput.value = '';
-        countryInput.value = playerCountry;
-        countryFlag.textContent = countryToFlag(playerCountry);
-        setTimeout(()=>nameInput.focus(), 50);
-      }
+      sfx.ui();
+      if(!hasSeenTutorial()) openTutorialIntro(); else startRun();
       break;
     case ST.TUTORIAL: sfx.ui(); startTutorial(); break;
     case ST.LAUNCH: doLaunch(); pressed = true; break;
@@ -2221,7 +2309,7 @@ function press(){
     case ST.DONE:
       if(statT > 2.4){
         sfx.ui();
-        startRun(); // ya tenemos el nombre: se relanza directo, sin pedirlo de nuevo
+        startRun();
       }
       break;
     case ST.RECORDS: sfx.ui(); state = ST.TITLE; break;
@@ -2248,6 +2336,11 @@ rankingBtn.addEventListener('click', e=>{
   if(state===ST.TITLE || (state===ST.DONE && statT > 2.4)) openRecords();
 });
 tutorialBtn.addEventListener('click', e=>{ e.stopPropagation(); if(state===ST.TITLE){ sfx.ui(); openTutorialIntro(); } });
+const saveScoreBtn = document.getElementById('saveScoreBtn');
+saveScoreBtn.addEventListener('click', e=>{
+  e.stopPropagation();
+  if(state===ST.DONE && statT > 2.4 && !recordSaved) openSaveScore();
+});
 function positionOverlayBtns(){
   const r = cv.getBoundingClientRect();
   const s = r.width / W; // factor de escala real del canvas en pantalla
@@ -2260,24 +2353,44 @@ function positionOverlayBtns(){
   for(const b of [rankingBtn, tutorialBtn]){
     b.style.fontSize = fs + 'px';
     b.style.padding = padV+'px '+padH+'px';
+    b.style.width = 'auto'; // se resetea antes de medir, si no arrastra un ancho fijo de una pasada anterior
   }
+  // "🏆 RANKING" y "▶ TUTORIAL" tienen distinto largo de texto, así que sin
+  // esto cada botón se centraba con SU PROPIO ancho y quedaban con bordes
+  // desalineados entre sí (se veían "descentrados" como par, aunque cada
+  // uno individualmente sí estaba centrado). Se igualan al más ancho de
+  // los dos para que compartan el mismo eje central.
+  const maxW = Math.max(rankingBtn.offsetWidth, tutorialBtn.offsetWidth);
+  rankingBtn.style.width = maxW + 'px';
+  tutorialBtn.style.width = maxW + 'px';
   if(state === ST.DONE){
-    // en resultados solo se ve el botón de ranking, bajo "TOCA: NUEVO LANZAMIENTO" (y=168)
-    const rowY = r.top + 184*s;
+    // en resultados: GUARDAR PUNTUACIÓN (si aún no se guardó) y RANKING,
+    // apilados bajo "TOCA: NUEVO LANZAMIENTO" (y=168) — mismo patrón que
+    // el título, cada botón mide su propio ancho (textos bien distintos)
+    saveScoreBtn.style.fontSize = fs + 'px';
+    saveScoreBtn.style.padding = padV+'px '+padH+'px';
+    const rowGap = 2*s;
+    let rowY = r.top + 184*s;
+    if(saveScoreBtnShownPrev){
+      saveScoreBtn.style.top = rowY + 'px';
+      saveScoreBtn.style.left = (r.left + r.width/2 - saveScoreBtn.offsetWidth/2) + 'px';
+      rowY += saveScoreBtn.offsetHeight + rowGap;
+    }
     rankingBtn.style.top = rowY + 'px';
     rankingBtn.style.left = (r.left + r.width/2 - rankingBtn.offsetWidth/2) + 'px';
   } else {
-    // en el título, apilados uno sobre el otro (centrados) bajo "TOCA PARA
-    // VOLAR" (y=152) y antes del panel del ranking (que arranca en y=186):
-    // solo 34px lógicos de hueco para las dos filas, así que van pegados
-    // al límite de arriba y con el gap más chico posible entre ellos
+    // en el título, apilados uno sobre el otro (mismo ancho, mismo eje
+    // central) bajo "TOCA PARA VOLAR" (y=152) y antes del panel del
+    // ranking (que arranca en y=186): solo 34px lógicos de hueco para las
+    // dos filas, así que van pegados al límite de arriba y con el gap más
+    // chico posible entre ellos
     const rowY = r.top + 156*s;
-    const rw = rankingBtn.offsetWidth, tw = tutorialBtn.offsetWidth;
     const rowGap = 2*s;
+    const left = r.left + r.width/2 - maxW/2;
     rankingBtn.style.top = rowY + 'px';
-    rankingBtn.style.left = (r.left + r.width/2 - rw/2) + 'px';
+    rankingBtn.style.left = left + 'px';
     tutorialBtn.style.top = (rowY + rankingBtn.offsetHeight + rowGap) + 'px';
-    tutorialBtn.style.left = (r.left + r.width/2 - tw/2) + 'px';
+    tutorialBtn.style.left = left + 'px';
   }
 }
 
