@@ -9,3 +9,6 @@ node_modules
 
 # Environment variables / secrets
 .env
+
+# Lockfile generado localmente por netlify dev (Deno Edge Functions)
+deno.lock

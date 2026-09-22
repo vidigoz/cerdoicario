@@ -44,6 +44,22 @@
     display:none; align-items:center; justify-content:center; touch-action:manipulation; }
   #settingsGear.show { display:flex; }
   #settingsGear:hover { background:#4a3556; }
+  /* --- botón de "omitir tutorial": esquina opuesta, solo visible jugando el tutorial --- */
+  #skipTutBtn { position:fixed; top:calc(10px + env(safe-area-inset-top)); left:calc(10px + env(safe-area-inset-left));
+    z-index:8; font-family:inherit; font-size:9px; line-height:1; cursor:pointer; padding:8px 10px;
+    background:#3a2a44; color:#f2d16b; border:3px solid #f2d16b; border-radius:6px;
+    display:none; align-items:center; justify-content:center; touch-action:manipulation; }
+  #skipTutBtn.show { display:flex; }
+  #skipTutBtn:hover { background:#4a3556; }
+  /* --- botones de "ranking" y "tutorial" del título: posicionados por JS
+     (positionOverlayBtns) siguiendo el rect real del canvas escalado, para
+     quedar alineados con el contenido dibujado dentro sin importar el zoom --- */
+  #rankingBtn, #tutorialBtn { position:fixed; z-index:8; font-family:inherit; font-size:6px;
+    line-height:1; cursor:pointer; padding:5px 8px; white-space:nowrap;
+    background:#3a2a44; color:#f2d16b; border:2px solid #f2d16b; border-radius:5px;
+    display:none; align-items:center; justify-content:center; touch-action:manipulation; }
+  #rankingBtn.show, #tutorialBtn.show { display:flex; }
+  #rankingBtn:hover, #tutorialBtn:hover { background:#4a3556; }
   #settingsOverlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:rgba(10,6,16,.75); z-index:11; }
   #settingsOverlay.show { display:flex; }
@@ -113,6 +129,9 @@
   </div>
 </div>
 <button id="settingsGear" aria-label="Ajustes">⚙️</button>
+<button id="skipTutBtn" aria-label="Saltar tutorial">OMITIR TUTORIAL ✕</button>
+<button id="rankingBtn" aria-label="Ver ranking">🏆 RANKING</button>
+<button id="tutorialBtn" aria-label="Ver tutorial">▶ TUTORIAL</button>
 
 <script>
 /* =====================================================================
@@ -141,6 +160,12 @@ function fit(){
   const s = (isSmallScreen || intScale < 1) ? fracScale : intScale;
   cv.style.width  = (W * s) + 'px';
   cv.style.height = (H * s) + 'px';
+  // positionOverlayBtns se declara más abajo en el script (tras rankingBtn/
+  // tutorialBtn); fit() corre una vez de entrada antes de llegar ahí, así
+  // que no se puede llamar de forma incondicional sin un ReferenceError
+  // por temporal-dead-zone. Los botones se reposicionan solos cuando el
+  // loop() detecta que deben mostrarse (ver positionOverlayBtns más abajo).
+  try{ positionOverlayBtns(); }catch(e){}
 }
 addEventListener('resize', fit);
 addEventListener('orientationchange', ()=>setTimeout(fit, 100));
@@ -181,7 +206,8 @@ const BIOMES = [
  {name:'RUINAS',    sky:['#2e1a4a','#5c3a7a','#8f5a8a','#c9856a'], grass:'#8a80a0', grassHi:'#a89cc0', grassDk:'#6a6282', dirt:'#5a5266', dirtStripe:'#484152', plain:'#7a7090', plainEdge:'#585070', plainShade:'#6c6482', tree:'#3a3252', treeHi:'#544a72'},
  {name:'TIERRAS MÍSTICAS', sky:['#0f0f2e','#2a1a52','#5c2a7a','#9a4a9a'], grass:'#b08fd0', grassHi:'#d0b2e8', grassDk:'#8a6aa8', dirt:'#4a3a6e', dirtStripe:'#3a2c58', plain:'#8a6ab0', plainEdge:'#664e8a', plainShade:'#7c5ea2', tree:'#2e1a4a', treeHi:'#4c3272'}
 ];
-const BIOME_SPAN = 20000; // 5000m * 4px por metro
+const BIOME_SPAN_NORMAL = 20000; // 5000m * 4px por metro
+let BIOME_SPAN = BIOME_SPAN_NORMAL; // el tutorial lo reduce para poner su rampa donde quiera, sin tocar la lógica de rampa/agua
 let BIO = BIOMES[0];
 function biomeIndexAt(x){ return Math.max(0, Math.floor(x / BIOME_SPAN)) % BIOMES.length; }
 
@@ -522,6 +548,14 @@ const FLAG = makeSprite([
 'O.......'
 ]);
 
+/* --- logo de título: PNG hecho a mano (cerdo + rótulo "CERDO ICARIO"
+   ya integrado en la imagen), reemplaza el panel de texto dibujado por
+   canvas en drawTitle(). Se precarga una sola vez; drawTitle() no lo
+   dibuja hasta que .complete es true, para no mostrar un cuadro roto
+   mientras carga. --- */
+const TITLE_LOGO = new Image();
+TITLE_LOGO.src = 'images/title.png';
+
 /* =====================================================================
    AUDIO — chiptune + efectos (WebAudio)
    ===================================================================== */
@@ -599,13 +633,53 @@ function resetTerrainInit(){
 
 function resetTerrain(){
   segs = [];
+  if(tutorialActive){ buildTutorialTerrain(); return; }
   // el granero está justo al filo de un risco alto; el salto del techo
   // se convierte en una caída en picada real por la cara del acantilado
   segs.push({x0:-400, x1:200, v0:60,  v1:60,  A:0});   // risco de la granja (bien arriba)
   segs.push({x0:200,  x1:430, v0:60,  v1:350, A:0});   // cara del acantilado: caída pronunciada
   segs.push({x0:430,  x1:1000,v0:350, v1:300, A:0});   // se suaviza hacia el valle
 }
+/* --- TERRENO DEL TUTORIAL: fijo a mano, cada tramo enseña una sola cosa.
+   Reutiliza BIOME_SPAN/RAMP_LEN/WATER_SPAN (BIOME_SPAN y WATER_SPAN se
+   reducen solo mientras tutorialActive) para que rampAt/waterZoneAt/groundY
+   no necesiten ninguna rama especial: la rampa "real" del juego cae justo
+   donde la queremos, con lago corto detrás. ---*/
+const TUT = {
+  freezePt: 700,     // a mitad de la bajada: se congela con pendiente de sobra por delante
+  valley: 1000,      // pie de la bajada, ya en plano, donde arranca la subida con comida
+  foodStart: 1000, foodEnd: 1400,   // subida con comida: lección de energía
+  pumpStart: 1400, pumpEnd: 1900,   // valle atrapa-cerdos: lección de péndulo (mismo v0=v1 a ambos lados: valle cerrado)
+  rampAt: 3200,      // = BIOME_SPAN del tutorial: ahí es donde rampAt() coloca el filo de la rampa
+  waterSpan: 1500,   // lago corto (≈375m) para la lección de vuelo: se cruza en pocos segundos
+};
+// valores verificados por simulación contra la física real del juego (ver
+// scratchpad/search_terrain.js), partiendo siempre de TUT_RELEASE_SPD:
+// sin bombear, el cerdo queda oscilando dentro del valle sin cruzarlo
+// nunca; bombeando (picar en bajada, soltar en subida) sale disparado.
+function buildTutorialTerrain(){
+  segs.push({x0:-400, x1:200, v0:60,  v1:60,  A:0});    // techo del granero
+  segs.push({x0:200,  x1:430, v0:60,  v1:350, A:0});    // cara del risco
+  segs.push({x0:430,  x1:TUT.valley, v0:350, v1:390, A:0}); // bajada larga: lección "mantén presionado"
+  // subida con comida: la altura base v0→v1 se queda IGUAL al final que al
+  // principio del valle atrapa-cerdos (incluida su cima de entrada), para
+  // que retroceder no abra un precipicio de vuelta al granero — el cerdo
+  // solo puede rebotar dentro del propio valle, como un péndulo real
+  segs.push({x0:TUT.foodStart, x1:TUT.foodEnd, v0:390, v1:300, A:0});
+  // valle atrapa-cerdos: dos jorobas moderadas (mismo tamaño y pendiente que
+  // usa el terreno normal del juego al inicio de una partida) — sin picar
+  // en cada bajadita y soltar en cada cimita, como un péndulo, no se cruza
+  const pumpMid = (TUT.pumpStart+TUT.pumpEnd)/2;
+  segs.push({x0:TUT.foodEnd, x1:pumpMid,     v0:300, v1:300, A:70});
+  segs.push({x0:pumpMid,     x1:TUT.pumpEnd, v0:300, v1:300, A:70});
+  // bajada real hacia la rampa: le da al cerdo el impulso que necesita para
+  // coronar la subida final de la rampa (esta parte de segs solo se usa
+  // hasta que entra la zona de aproximación/rampa propia de groundY(),
+  // pero necesita traer velocidad para cuando eso ocurra)
+  segs.push({x0:TUT.pumpEnd, x1:TUT.rampAt, v0:300, v1:520, A:0});
+}
 function ensureTerrain(xNeed){
+  if(tutorialActive) return; // terreno 100% fijo, no crece: no hay nada procedural que generar
   while(segs[segs.length-1].x1 < xNeed + 1200){
     const last = segs[segs.length-1];
     const dist = last.x1;
@@ -624,6 +698,7 @@ function ensureTerrain(xNeed){
 // (sobre todo a máxima velocidad) estas listas crecían sin límite y hacían
 // cada cuadro más pesado de procesar, dando la sensación de "trabarse"
 function pruneWorld(pigX){
+  if(tutorialActive) return;
   const cutoff = pigX - 2500;
   if(segs.length > 40){
     let i = 0;
@@ -655,7 +730,8 @@ function baseGroundY(x){
    Al final de esa franja de agua, una curva corta reconecta con la
    tierra firme normal del bioma que sigue. */
 const RAMP_LEN = 340, RAMP_H = 170, APPR_LEN = 700, APPR_DROP = 140, LAND_LEN = 300;
-const WATER_SPAN = 8000; // 2000m * 4px/m: ancho del lago entre biomas
+const WATER_SPAN_NORMAL = 8000; // 2000m * 4px/m: ancho del lago entre biomas
+let WATER_SPAN = WATER_SPAN_NORMAL; // el tutorial usa un lago mucho más corto para la lección de vuelo
 function rampAt(x){
   // devuelve la posición final R si x está sobre la madera de la rampa
   const n = Math.floor((x + RAMP_LEN) / BIOME_SPAN);
@@ -801,12 +877,69 @@ loadRecords();
 /* =====================================================================
    ESTADO DEL JUEGO
    ===================================================================== */
-const ST = { TITLE:0, LAUNCH:1, PLAY:2, DONE:3, RECORDS:4 };
+const ST = { TITLE:0, LAUNCH:1, PLAY:2, DONE:3, RECORDS:4, TUTORIAL:5 };
 let state = ST.TITLE;
 let playerName = 'SIR CERDO';
 let playerCountry = 'MX';
 let pressed = false;
 let tGlobal = 0;
+
+/* =====================================================================
+   TUTORIAL — terreno guionado (ver buildTutorialTerrain) que enseña,
+   en orden: picar en bajada, soltar en el valle, comer para no perder
+   energía, "pedalear" como péndulo para salir de un bajón sin impulso,
+   y por último la fase de vuelo (aletear/soltar) sobre un lago corto.
+   ===================================================================== */
+let tutorialActive = false;
+let tutStep = 0;        // índice de la lección actual, ver TUT_STEPS
+let tutFrozen = false;  // true mientras el mundo está congelado esperando que suelten
+let tutFrozenT = 0;     // segundos reales transcurridos desde que se congeló (independiente del dt del mundo, que es 0)
+const TUT_FROZEN_GRACE = 3; // segundos antes de pasar del mensaje inicial a "deja de tocar la pantalla"
+let tutHasReleased = false; // ya soltó al menos una vez desde que se congeló
+const TUT_SEEN_KEY = 'cerdoicario-tutorial-visto';
+function hasSeenTutorial(){
+  try{ return localStorage.getItem(TUT_SEEN_KEY) === '1'; }catch(e){ return false; }
+}
+function markTutorialSeen(){
+  try{ localStorage.setItem(TUT_SEEN_KEY, '1'); }catch(e){}
+}
+function openTutorialIntro(){
+  state = ST.TUTORIAL; // pantalla de bienvenida; el juego arranca al tocar
+}
+function startTutorial(){
+  tutorialActive = true;
+  tutStep = 0; tutFrozen = false; tutHasReleased = false;
+  BIOME_SPAN = TUT.rampAt; WATER_SPAN = TUT.waterSpan;
+  resetTerrain(); ensureTerrain(0);
+  items = []; parts = []; floats = []; obstacles = []; obSpawnT = 0;
+  for(const s of segs) if(s.x0 >= TUT.foodStart) spawnItems(s);
+  const barnBase = groundY(BARN_X);
+  pig.x = 192; pig.y = barnBase - 50;
+  pig.vx = 0; pig.vy = 0; pig.grounded = false; pig.spd = 0; pig.facing = 1;
+  pig.points = 0; pig.combo = 0; pig.stopT = 0; pig.fever = 0; pig.best = 192;
+  pig.energy = 100; pig.dead = false; pig.deadT = 0; pig.deathCause = '';
+  pig.mode = 'HILLS'; pig.flightT = 0; pig.bio = 0; pig.angle = 0;
+  pig.waterTurbo = false; pig.turboT = 0;
+  camX = 0; camY = 60; zoom = BASE_ZOOM;
+  launchAnim = -1;
+  state = ST.LAUNCH; // el salto inicial del granero se reusa tal cual
+  startMusicForNewRun();
+}
+function endTutorial(){
+  tutorialActive = false;
+  BIOME_SPAN = BIOME_SPAN_NORMAL; WATER_SPAN = WATER_SPAN_NORMAL;
+  markTutorialSeen();
+  state = ST.TITLE;
+}
+// tocó tierra firme al otro lado del lago: lección completa, se corta ahí
+// (el terreno guionado no sigue más allá) y vuelve al título tras un festejo breve
+function finishTutorial(){
+  tutStep = TUT_STEPS.DONE;
+  pig.energy = 100;
+  floatText(pig.x, pig.y-50, '¡TUTORIAL COMPLETO!', PAL.gold, true);
+  sfx.record();
+  setTimeout(()=>{ if(tutorialActive) endTutorial(); }, 2600);
+}
 
 const pig = {
   x:0, y:0, vx:0, vy:0, grounded:false, spd:0, angle:0, facing:1,
@@ -827,6 +960,10 @@ let powerT = 0;       // oscilador del medidor
 let launchAnim = -1;  // animación de catapulta
 let resultT = 0, newRecord = false, statT = 0;
 let settingsGearShown = false;
+let skipTutBtnShown = false;
+let rankingBtnShownPrev = false;
+let tutorialBtnShownPrev = false;
+let overlayBtnsStatePrev = -1;
 
 function startRun(){
   resetTerrain();
@@ -864,15 +1001,40 @@ function doLaunch(){
    FÍSICA — el corazón Tiny Wings
    ===================================================================== */
 const GRAV = 620, DIVE = 1250, FRICTION = 0.10, MAXSPD = 760; // MAXSPD -20%
+const TUT_RELEASE_SPD = 500; // velocidad fija al soltar en el freeze del tutorial (ver TUT)
 
 function physics(dt){
+  // --- TUTORIAL: mundo congelado por completo mientras se espera que el
+  //     jugador suelte, para que pueda leer la instrucción con calma ---
+  if(tutorialActive && tutFrozen){
+    if(!pressed){
+      tutFrozen = false; tutHasReleased = true;
+      // la velocidad con la que se sale del freeze se fija a un valor conocido,
+      // sin importar cuánto tiempo mantuvo presionado el jugador antes de
+      // llegar aquí: así el resto del terreno guionado (la lección de
+      // energía y sobre todo el valle atrapa-cerdos) se comporta siempre
+      // igual, calibrado y verificado para exactamente este valor de entrada
+      pig.spd = TUT_RELEASE_SPD;
+    } else {
+      // sigue tocando: el cronómetro real (el mundo está en pausa, así que
+      // no puede usarse el dt congelado) decide cuándo pasar del mensaje
+      // inicial a "deja de tocar la pantalla"
+      tutFrozenT += dt;
+    }
+    return;
+  }
+  if(tutorialActive) updateTutorial(dt);
+
   // --- ENERGÍA: se consume en colinas, y también en vuelo una vez que ya
   //     hay tierra firme abajo (cruzó el lago) — así no puede volar eterno,
   //     tiene que aterrizar para volver a comer. Sobre el lago se pausa,
   //     porque cruzarlo es obligatorio y no depende de la habilidad del jugador. ---
   if(!pig.dead && (pig.mode === 'HILLS' || (pig.mode === 'FLIGHT' && !isWaterAt(pig.x)))){
     const drain = 4.06 + (pressed ? 13.26 : 0);
-    pig.energy = Math.max(0, pig.energy - drain*dt);
+    // en el tutorial la energía nunca baja de un piso seguro: se ve la barra
+    // bajar (para que la lección de "comer" tenga sentido visual) pero no mata
+    const floorE = tutorialActive ? 22 : 0;
+    pig.energy = Math.max(floorE, pig.energy - drain*dt);
     if(pig.energy <= 0) triggerDeath('hambre');
   }
   if(pig.dead){
@@ -997,6 +1159,7 @@ function physics(dt){
         obstacles = [];
         floatText(pig.x, pig.y-30, '¡ATERRIZAJE SEGURO!', PAL.gold, true);
         sfx.land();
+        if(tutorialActive && tutStep < TUT_STEPS.DONE) finishTutorial();
       }
     }
 
@@ -1173,6 +1336,45 @@ function physics(dt){
   ensureTerrain(pig.x);
 }
 
+/* --- pasos del tutorial: cada uno se dispara una sola vez, por posición
+   del cerdo o por un evento concreto (soltar, comer, aterrizar). tutStep
+   solo avanza hacia adelante, así que retroceder (p.ej. en el péndulo) no
+   repite mensajes ya vistos. ---*/
+const TUT_STEPS = {
+  INTRO:0, DIVE:1, FROZEN_WAIT:2, RELEASED:3, FOOD:4, PUMP:5, RAMP:6, DONE:7
+};
+function updateTutorial(dt){
+  if(tutStep === TUT_STEPS.INTRO && pressed && pig.mode==='HILLS' && pig.grounded===false && pig.x > 210){
+    tutStep = TUT_STEPS.DIVE;
+    floatText(pig.x, pig.y-30, '¡BIEN! MANTENLO PRESIONADO EN LA BAJADA', PAL.cream, true);
+  }
+  // a mitad de la bajada se congela el mundo entero hasta que suelte; la
+  // velocidad ganada NO se toca, para que al soltar el cerdo siga la bajada
+  // con el impulso intacto (queda pendiente de sobra por delante)
+  if(tutStep <= TUT_STEPS.DIVE && pig.grounded && pig.x >= TUT.freezePt - 4){
+    tutStep = TUT_STEPS.FROZEN_WAIT;
+    tutFrozen = true; tutFrozenT = 0;
+  }
+  if(tutStep === TUT_STEPS.FROZEN_WAIT && tutHasReleased){
+    tutStep = TUT_STEPS.RELEASED;
+    floatText(pig.x, pig.y-30, '¡ESO ES! AHORA SIGUE SOLO', PAL.gold, true);
+  }
+  if(tutStep === TUT_STEPS.RELEASED && pig.x >= TUT.foodStart + 60){
+    tutStep = TUT_STEPS.FOOD;
+    floatText(pig.x, pig.y-40, 'PICAR GASTA ENERGÍA — ¡COME PARA RECARGARLA!', PAL.cream, true);
+  }
+  if(tutStep === TUT_STEPS.FOOD && pig.x >= TUT.pumpStart - 20){
+    tutStep = TUT_STEPS.PUMP;
+    floatText(pig.x, pig.y-40, 'SIN IMPULSO AQUÍ: PICA EN BAJADAS,', PAL.cream, true);
+    setTimeout(()=>floatText(pig.x, pig.y-26, 'SUELTA EN SUBIDAS, COMO UN PÉNDULO', PAL.cream, true), 1400);
+  }
+  if(tutStep === TUT_STEPS.PUMP && pig.x >= TUT.pumpEnd){
+    tutStep = TUT_STEPS.RAMP;
+    floatText(pig.x, pig.y-40, '¡LO LOGRASTE! AHORA GANA VELOCIDAD', PAL.gold, true);
+    setTimeout(()=>floatText(pig.x, pig.y-26, 'PARA LLEGAR VOLANDO A LA RAMPA', PAL.cream, true), 1200);
+  }
+}
+
 function startFlight(){
   pig.mode = 'FLIGHT';
   pig.flightT = 0;
@@ -1182,7 +1384,12 @@ function startFlight(){
   const v = Math.max(260, pig.spd / Math.SQRT2);
   pig.vx = v; pig.vy = -v;
   floatText(pig.x, pig.y-50, '¡A VOLAR, CERDITO!', PAL.gold, true);
-  setTimeout(()=>floatText(pig.x, pig.y-40, '¡CUIDADO, ABAJO HAY AGUA!', PAL.cream, true), 900);
+  if(tutorialActive){
+    setTimeout(()=>floatText(pig.x, pig.y-40, 'MANTÉN PRESIONADO = ALETEA Y SUBE', PAL.cream, true), 900);
+    setTimeout(()=>floatText(pig.x, pig.y-40, 'SUELTA = CAE POR GRAVEDAD', PAL.cream, true), 2600);
+  } else {
+    setTimeout(()=>floatText(pig.x, pig.y-40, '¡CUIDADO, ABAJO HAY AGUA!', PAL.cream, true), 900);
+  }
   sfx.launch();
   setTimeout(()=>sfx.oink(), 300);
   puff(pig.x, pig.y, 20, '#ffffff', 140, -80);
@@ -1205,6 +1412,7 @@ function triggerDeath(cause){
 }
 
 async function finishRun(){
+  if(tutorialActive){ retryTutorialFlight(); return; }
   state = ST.DONE;
   resultT = 0; statT = 0; newRecord = false;
   sfx.stop();
@@ -1214,6 +1422,19 @@ async function finishRun(){
     newRecord = isNew;
     if(newRecord) setTimeout(()=>sfx.record(), 700);
   }
+}
+// en el tutorial nunca hay pantalla de derrota: si toca el agua o choca en
+// pleno vuelo, vuelve a la punta de la rampa con energía llena a reintentar
+function retryTutorialFlight(){
+  const R = TUT.rampAt;
+  pig.x = R - 6; pig.y = groundY(R-6) - 3;
+  pig.vx = 0; pig.vy = 0; pig.spd = 0; pig.grounded = true;
+  pig.mode = 'HILLS'; pig.dead = false; pig.deadT = 0; pig.deathCause = '';
+  pig.energy = 100; pig.combo = 0; pig.fever = 0;
+  obstacles = []; obSpawnT = 1.1;
+  pressed = false;
+  floatText(pig.x, pig.y-30, '¡CASI! INTÉNTALO OTRA VEZ', PAL.gold, true);
+  shake = 3;
 }
 
 /* =====================================================================
@@ -1556,8 +1777,10 @@ function drawPig(){
   else {
     // ciclo de carrera de 4 frames: la cadencia sube con la velocidad, y al
     // picar (pressed) las patitas se mueven aún más rápido, como esprintando
-    const sprint = pressed ? 1.9 : 1;
-    pig.frame += (0.02 + Math.abs(pig.spd)*0.0011) * sprint;
+    if(!(tutorialActive && tutFrozen)){
+      const sprint = pressed ? 1.9 : 1;
+      pig.frame += (0.02 + Math.abs(pig.spd)*0.0011) * sprint;
+    }
     spr = PIG_RUN[(pig.frame|0) % 4];
   }
   // hundiéndose: se va desvaneciendo bajo el agua
@@ -1586,11 +1809,13 @@ function drawFarmScene(){
   if(bx < -160-viewMX || bx > W+120+viewMX) return;
   const base = groundY(BARN_X) - camY;
   const bodyW = 96, bodyH = 48, bL = px(bx - bodyW/2);
-  // cuerpo del granero
-  cx.fillStyle = '#a83c2a';
+  // cuerpo del granero: entramado de madera medieval, no granero rojo americano
+  cx.fillStyle = '#8a6a42';
   cx.fillRect(bL, px(base-bodyH), bodyW, bodyH);
-  cx.fillStyle = '#8a2e20';
+  cx.fillStyle = PAL.woodDk;
   for(let i=0;i<bodyW;i+=8) cx.fillRect(bL+i, px(base-bodyH), 1, bodyH);
+  // vigas horizontales del entramado
+  for(let hy=px(base-bodyH)+10; hy<px(base); hy+=14) cx.fillRect(bL, hy, bodyW, 3);
   // techo a dos aguas
   cx.fillStyle = PAL.woodDk;
   cx.beginPath();
@@ -1708,13 +1933,43 @@ function drawHUD(){
       text('TIERRA FIRME: PUEDES ATERRIZAR', W/2, 66, 6, PAL.grass);
     }
   }
-  // instrucción breve al inicio
-  if(pig.x < 900 && state===ST.PLAY && pig.mode==='HILLS')
-    text('MANTÉN PRESIONADO = PICADA', W/2, 70, 7, PAL.cream);
-  if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 2.5)
-    text('PRESIONA PARA MANTENER LAS ALAS ABIERTAS', W/2, 78, 7, PAL.cream);
-  if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 2.5)
-    text('SUELTA PARA BAJAR', W/2, 88, 7, PAL.cream);
+  // instrucción breve al inicio (fuera del tutorial, que tiene sus propios textos guionados)
+  if(!tutorialActive){
+    if(pig.x < 900 && state===ST.PLAY && pig.mode==='HILLS')
+      text('MANTÉN PRESIONADO = PICADA', W/2, 70, 7, PAL.cream);
+    if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 2.5)
+      text('PRESIONA PARA MANTENER LAS ALAS ABIERTAS', W/2, 78, 7, PAL.cream);
+    if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 2.5)
+      text('SUELTA PARA BAJAR', W/2, 88, 7, PAL.cream);
+  }
+  if(tutorialActive) drawTutorialHUD();
+}
+
+function drawTutorialHUD(){
+  // aviso grande y persistente mientras el mundo está congelado: no depende
+  // del texto flotante (que se desvanece) para que el jugador nunca se quede
+  // sin saber qué hacer. Dos fases: primero explica POR QUÉ soltar (los
+  // primeros TUT_FROZEN_GRACE segundos), y si sigue tocando después de eso,
+  // pasa a una instrucción más directa y urgente.
+  if(tutFrozen){
+    const blink = (tGlobal*3|0)%2===0;
+    const urgent = tutFrozenT >= TUT_FROZEN_GRACE;
+    panel(W/2-140, H/2-24, 280, 48);
+    if(!urgent){
+      text('AQUÍ DEBES SOLTAR', W/2, H/2-3, 9, PAL.gold);
+      text('PARA APROVECHAR LA VELOCIDAD', W/2, H/2+13, 7, PAL.cream);
+    } else {
+      text('DEJA DE TOCAR LA PANTALLA', W/2, H/2+2, blink?9:8, PAL.red);
+    }
+  }
+  if(tutStep === TUT_STEPS.INTRO)
+    text('MANTÉN PRESIONADO PARA PICAR', W/2, 70, 7, PAL.cream);
+  else if(tutStep === TUT_STEPS.PUMP)
+    text('PICA EN BAJADAS, SUELTA EN SUBIDAS', W/2, 70, 6, PAL.cream);
+  else if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 3.5){
+    text('PRESIONA = ALETEA Y SUBE', W/2, 78, 7, PAL.cream);
+    text('SUELTA = CAE POR GRAVEDAD', W/2, 88, 7, PAL.cream);
+  }
 }
 
 function drawTitle(){
@@ -1724,15 +1979,18 @@ function drawTitle(){
   const roofY = groundY(BARN_X) - camY - 50;
   cx.drawImage(PIG_RUN1, 174, px(roofY - 14), 38, 26);
 
+  // logo de título: PNG con el cerdo y el rótulo "CERDO ICARIO" ya
+  // integrado (ver TITLE_LOGO); reemplaza el panel+texto dibujado por
+  // canvas que había antes. Se centra en el ancho, cuadrado, ocupando el
+  // hueco libre por arriba de "TOCA PARA VOLAR"
   const bob = Math.sin(tGlobal*1.8)*3;
-  panel(W/2-176, 26+bob, 352, 74);
-  text('CERDO', W/2, 50+bob, 12, PAL.cream);
-  text('ICARIO', W/2, 74+bob, 19, PAL.gold);
-  text('~ El sueño de volar ~', W/2, 92+bob, 6, PAL.pinkHi);
+  if(TITLE_LOGO.complete && TITLE_LOGO.naturalWidth > 0){
+    const logoH = 132, logoW = logoH * TITLE_LOGO.naturalWidth/TITLE_LOGO.naturalHeight;
+    cx.drawImage(TITLE_LOGO, px(W/2 - logoW/2), px(8+bob), logoW, logoH);
+  }
 
   if((tGlobal*1.6|0)%2===0)
     text('TOCA PARA VOLAR', W/2, 152, 9, PAL.cream);
-  text('[R] VER RANKING COMPLETO', W/2, 172, 6, PAL.cream);
 
   panel(W/2-160, 186, 320, 66);
   text('TOP 3 MUNDIAL', W/2, 200, 7, PAL.gold);
@@ -1753,11 +2011,26 @@ function drawTitle(){
   text('v'+GAME_VERSION, 8, H-8, 5, PAL.pinkHi, false);
 }
 
+function drawTutorialIntro(){
+  drawSky(); drawParallax(); camX = 0; camY = 40;
+  drawTerrain(); drawFarmScene();
+  const roofY = groundY(BARN_X) - camY - 50;
+  cx.drawImage(PIG_RUN1, 174, px(roofY - 14), 38, 26);
+
+  panel(W/2-176, 40, 352, 132);
+  text('CÓMO VOLAR', W/2, 62, 11, PAL.gold);
+  text('MANTÉN PRESIONADO = PICA CUESTA ABAJO', W/2, 88, 6, PAL.cream);
+  text('SUELTA EN LA CIMA = SE ENDEREZA Y SALTA', W/2, 102, 6, PAL.cream);
+  text('COME PARA RECUPERAR ENERGÍA', W/2, 118, 6, PAL.cream);
+  text('EN VUELO: PRESIONA = ALETEA, SUELTA = CAE', W/2, 134, 6, PAL.cream);
+  if((tGlobal*1.6|0)%2===0) text('TOCA PARA EMPEZAR', W/2, 158, 8, PAL.gold);
+}
+
 function drawLaunch(){
   drawSky(); drawParallax(); drawTerrain(); drawItems(); drawFarmScene(); drawPig();
   panel(W/2-136, 30, 272, 52);
   text(playerName, W/2, 48, 9, PAL.gold);
-  text('¡TOCA PARA SALTAR DEL GRANERO!', W/2, 66, 7, PAL.cream);
+  text(tutorialActive ? '¡TOCA PARA SALTAR Y APRENDER A VOLAR!' : '¡TOCA PARA SALTAR DEL GRANERO!', W/2, 66, 7, PAL.cream);
 }
 
 function drawDone(dt){
@@ -1786,7 +2059,6 @@ function drawDone(dt){
     text('★ ¡NUEVO RÉCORD REAL! ★', W/2, 150, 9, PAL.gold);
   if(statT > 2.4){
     text('TOCA: NUEVO LANZAMIENTO', W/2, 168, 7, PAL.cream);
-    text('[R] VER RANKING AHORA', W/2, 196, 7, PAL.cream);
   }
 }
 
@@ -1849,24 +2121,42 @@ function loop(now){
   // engrane de ajustes: solo visible en menús, nunca durante el vuelo/catapulta
   const gearShown = (state===ST.TITLE || state===ST.DONE || state===ST.RECORDS);
   if(gearShown !== settingsGearShown){ settingsGearShown = gearShown; settingsGear.classList.toggle('show', gearShown); }
+  // botón de salir del tutorial: solo visible mientras se está jugando el tutorial
+  const skipShown = tutorialActive && (state===ST.LAUNCH || state===ST.PLAY);
+  if(skipShown !== skipTutBtnShown){ skipTutBtnShown = skipShown; skipTutBtn.classList.toggle('show', skipShown); }
+  // ranking: título y pantalla de resultados; tutorial: solo título — ambos
+  // táctiles, sin atajos de teclado (el juego es para móvil)
+  const rankingShown = state===ST.TITLE || (state===ST.DONE && statT > 2.4);
+  const tutorialBtnShown = state===ST.TITLE;
+  if(rankingShown !== rankingBtnShownPrev || tutorialBtnShown !== tutorialBtnShownPrev || state !== overlayBtnsStatePrev){
+    rankingBtnShownPrev = rankingShown; tutorialBtnShownPrev = tutorialBtnShown; overlayBtnsStatePrev = state;
+    rankingBtn.classList.toggle('show', rankingShown);
+    tutorialBtn.classList.toggle('show', tutorialBtnShown);
+    if(rankingShown || tutorialBtnShown) positionOverlayBtns();
+  }
 
   switch(state){
     case ST.TITLE: drawTitle(); break;
+    case ST.TUTORIAL: drawTutorialIntro(); break;
     case ST.LAUNCH:
       updateZoom(dt); updateCam(dt);
       withZoom(drawLaunch);
       break;
-    case ST.PLAY:
+    case ST.PLAY: {
       physics(dt);
-      updateZoom(dt); updateCam(dt);
+      // mientras el mundo está congelado esperando que suelten, nada se anima:
+      // ni cámara, ni partículas, ni textos flotantes
+      const dtLive = (tutorialActive && tutFrozen) ? 0 : dt;
+      updateZoom(dtLive); updateCam(dtLive);
       withZoom(()=>{
         drawSky(); drawParallax();
         drawTerrain();
         drawItems();
-        drawFarmScene(); drawObstacles(); drawPig(); drawParticles(dt);
+        drawFarmScene(); drawObstacles(); drawPig(); drawParticles(dtLive);
       });
       drawHUD(); // el HUD nunca se escala, siempre nítido
       break;
+    }
     case ST.DONE:
       updateZoom(dt); updateCam(dt);
       withZoom(()=>drawDone(dt));
@@ -1903,18 +2193,21 @@ function confirmName(){
   hasName = true;
   overlay.style.display = 'none';
   sfx.ui();
-  startRun();
+  if(pendingTutorialAfterName){ pendingTutorialAfterName = false; openTutorialIntro(); }
+  else startRun();
 }
 
+let pendingTutorialAfterName = false;
 function press(){
   audio();
   switch(state){
     case ST.TITLE:
       if(hasName){
         sfx.ui();
-        startRun();
+        if(!hasSeenTutorial()) openTutorialIntro(); else startRun();
       } else {
         sfx.ui();
+        pendingTutorialAfterName = !hasSeenTutorial();
         overlay.style.display = 'flex';
         nameInput.value = '';
         countryInput.value = playerCountry;
@@ -1922,6 +2215,7 @@ function press(){
         setTimeout(()=>nameInput.focus(), 50);
       }
       break;
+    case ST.TUTORIAL: sfx.ui(); startTutorial(); break;
     case ST.LAUNCH: doLaunch(); pressed = true; break;
     case ST.PLAY: pressed = true; break;
     case ST.DONE:
@@ -1935,6 +2229,57 @@ function press(){
 }
 function release(){ pressed = false; }
 function openRecords(){ sfx.ui(); state = ST.RECORDS; loadRecords(); }
+
+/* --- botón de omitir tutorial: visible solo mientras se juega el tutorial --- */
+const skipTutBtn = document.getElementById('skipTutBtn');
+skipTutBtn.addEventListener('click', e=>{
+  e.stopPropagation();
+  if(tutorialActive) endTutorial();
+});
+
+/* --- botones de ranking/tutorial en el título: todo el juego es táctil
+   (sin teclado), así que cualquier acción secundaria necesita su propio
+   botón físico en vez de un atajo de tecla. Se posicionan en JS siguiendo
+   el rect real del canvas, para quedar alineados sin importar el zoom. --- */
+const rankingBtn = document.getElementById('rankingBtn');
+const tutorialBtn = document.getElementById('tutorialBtn');
+rankingBtn.addEventListener('click', e=>{
+  e.stopPropagation();
+  if(state===ST.TITLE || (state===ST.DONE && statT > 2.4)) openRecords();
+});
+tutorialBtn.addEventListener('click', e=>{ e.stopPropagation(); if(state===ST.TITLE){ sfx.ui(); openTutorialIntro(); } });
+function positionOverlayBtns(){
+  const r = cv.getBoundingClientRect();
+  const s = r.width / W; // factor de escala real del canvas en pantalla
+  // el padding CSS es fijo y no escala solo con el canvas: en pantallas
+  // chicas (s<1) eso los volvía más anchos que el hueco disponible. Se
+  // escala fuente Y padding juntos, a tamaño de HUD (chico, como el resto
+  // del texto del juego) en vez del tamaño de botón "real" que tenían antes.
+  const fs = Math.max(5, 6*s);
+  const padV = Math.max(2, 3*s), padH = Math.max(6, 10*s);
+  for(const b of [rankingBtn, tutorialBtn]){
+    b.style.fontSize = fs + 'px';
+    b.style.padding = padV+'px '+padH+'px';
+  }
+  if(state === ST.DONE){
+    // en resultados solo se ve el botón de ranking, bajo "TOCA: NUEVO LANZAMIENTO" (y=168)
+    const rowY = r.top + 184*s;
+    rankingBtn.style.top = rowY + 'px';
+    rankingBtn.style.left = (r.left + r.width/2 - rankingBtn.offsetWidth/2) + 'px';
+  } else {
+    // en el título, apilados uno sobre el otro (centrados) bajo "TOCA PARA
+    // VOLAR" (y=152) y antes del panel del ranking (que arranca en y=186):
+    // solo 34px lógicos de hueco para las dos filas, así que van pegados
+    // al límite de arriba y con el gap más chico posible entre ellos
+    const rowY = r.top + 156*s;
+    const rw = rankingBtn.offsetWidth, tw = tutorialBtn.offsetWidth;
+    const rowGap = 2*s;
+    rankingBtn.style.top = rowY + 'px';
+    rankingBtn.style.left = (r.left + r.width/2 - rw/2) + 'px';
+    tutorialBtn.style.top = (rowY + rankingBtn.offsetHeight + rowGap) + 'px';
+    tutorialBtn.style.left = (r.left + r.width/2 - tw/2) + 'px';
+  }
+}
 
 /* --- ajustes de audio: engrane + panel con sliders de volumen --- */
 const settingsGear = document.getElementById('settingsGear');
@@ -1978,6 +2323,11 @@ addEventListener('keydown', e=>{
   if(overlay.style.display==='flex' || settingsOverlay.classList.contains('show')) return;
   if(e.code==='Space'){ e.preventDefault(); if(!pressed) press(); }
   if(e.key==='r' || e.key==='R'){ if(state===ST.TITLE || state===ST.DONE){ openRecords(); } }
+  if(e.key==='t' || e.key==='T'){ if(state===ST.TITLE){ sfx.ui(); openTutorialIntro(); } }
+  if(e.key==='Escape'){
+    if(state===ST.TUTORIAL){ sfx.ui(); state = ST.TITLE; }
+    else if(tutorialActive && (state===ST.LAUNCH || state===ST.PLAY)){ sfx.ui(); endTutorial(); }
+  }
 });
 addEventListener('keyup', e=>{ if(e.code==='Space') release(); });
 </script>
