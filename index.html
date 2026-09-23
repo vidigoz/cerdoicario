@@ -1384,24 +1384,13 @@ function updateTutorial(dt){
     tutStep = TUT_STEPS.FROZEN_WAIT;
     tutFrozen = true; tutFrozenT = 0;
   }
-  if(tutStep === TUT_STEPS.FROZEN_WAIT && tutHasReleased){
-    tutStep = TUT_STEPS.RELEASED;
-    floatText(pig.x, pig.y-30, '¡ESO ES! AHORA SIGUE SOLO', PAL.gold, true);
-  }
-  if(tutStep === TUT_STEPS.RELEASED && pig.x >= TUT.foodStart + 60){
-    tutStep = TUT_STEPS.FOOD;
-    floatText(pig.x, pig.y-40, 'PICAR GASTA ENERGÍA — ¡COME PARA RECARGARLA!', PAL.cream, true);
-  }
-  if(tutStep === TUT_STEPS.FOOD && pig.x >= TUT.pumpStart - 20){
-    tutStep = TUT_STEPS.PUMP;
-    floatText(pig.x, pig.y-40, 'SIN IMPULSO AQUÍ: PICA EN BAJADAS,', PAL.cream, true);
-    setTimeout(()=>floatText(pig.x, pig.y-26, 'SUELTA EN SUBIDAS, COMO UN PÉNDULO', PAL.cream, true), 1400);
-  }
-  if(tutStep === TUT_STEPS.PUMP && pig.x >= TUT.pumpEnd){
-    tutStep = TUT_STEPS.RAMP;
-    floatText(pig.x, pig.y-40, '¡LO LOGRASTE! AHORA GANA VELOCIDAD', PAL.gold, true);
-    setTimeout(()=>floatText(pig.x, pig.y-26, 'PARA LLEGAR VOLANDO A LA RAMPA', PAL.cream, true), 1200);
-  }
+  // a partir de soltar en el freeze, el resto del tutorial ya no interrumpe
+  // con más texto — solo la instrucción inicial (antes del freeze) y el
+  // aviso del freeze mismo (ver drawTutorialHUD) quedan en pantalla
+  if(tutStep === TUT_STEPS.FROZEN_WAIT && tutHasReleased) tutStep = TUT_STEPS.RELEASED;
+  if(tutStep === TUT_STEPS.RELEASED && pig.x >= TUT.foodStart + 60) tutStep = TUT_STEPS.FOOD;
+  if(tutStep === TUT_STEPS.FOOD && pig.x >= TUT.pumpStart - 20) tutStep = TUT_STEPS.PUMP;
+  if(tutStep === TUT_STEPS.PUMP && pig.x >= TUT.pumpEnd) tutStep = TUT_STEPS.RAMP;
 }
 
 function startFlight(){
@@ -1413,10 +1402,9 @@ function startFlight(){
   const v = Math.max(260, pig.spd / Math.SQRT2);
   pig.vx = v; pig.vy = -v;
   floatText(pig.x, pig.y-50, '¡A VOLAR, CERDITO!', PAL.gold, true);
-  if(tutorialActive){
-    setTimeout(()=>floatText(pig.x, pig.y-40, 'MANTÉN PRESIONADO = ALETEA Y SUBE', PAL.cream, true), 900);
-    setTimeout(()=>floatText(pig.x, pig.y-40, 'SUELTA = CAE POR GRAVEDAD', PAL.cream, true), 2600);
-  } else {
+  // en el tutorial ya no hay más texto guionado tras el freeze de mitad de
+  // bajada (ver updateTutorial/drawTutorialHUD) — el resto se aprende jugando
+  if(!tutorialActive){
     setTimeout(()=>floatText(pig.x, pig.y-40, '¡CUIDADO, ABAJO HAY AGUA!', PAL.cream, true), 900);
   }
   sfx.launch();
@@ -2040,14 +2028,10 @@ function drawTutorialHUD(){
       text('DEJA DE TOCAR LA PANTALLA', W/2, H/2+2, blink?9:8, PAL.red);
     }
   }
+  // solo antes del freeze (INTRO) queda instrucción persistente en pantalla;
+  // de ahí en adelante el tutorial ya no interrumpe con más texto
   if(tutStep === TUT_STEPS.INTRO)
-    text('MANTÉN PRESIONADO PARA PICAR', W/2, 70, 7, PAL.cream);
-  else if(tutStep === TUT_STEPS.PUMP)
-    text('PICA EN BAJADAS, SUELTA EN SUBIDAS', W/2, 70, 6, PAL.cream);
-  else if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 3.5){
-    text('PRESIONA = ALETEA Y SUBE', W/2, 78, 7, PAL.cream);
-    text('SUELTA = CAE POR GRAVEDAD', W/2, 88, 7, PAL.cream);
-  }
+    text('MANTÉN PRESIONADO PARA CORRER', W/2, 70, 7, PAL.cream);
 }
 
 function drawTitle(){
@@ -2095,20 +2079,31 @@ function drawTutorialIntro(){
   const roofY = groundY(BARN_X) - camY - 50;
   cx.drawImage(PIG_RUN1, 174, px(roofY - 14), 38, 26);
 
-  panel(W/2-176, 40, 352, 132);
-  text('CÓMO VOLAR', W/2, 62, 11, PAL.gold);
-  text('MANTÉN PRESIONADO = PICA CUESTA ABAJO', W/2, 88, 6, PAL.cream);
-  text('SUELTA EN LA CIMA = SE ENDEREZA Y SALTA', W/2, 102, 6, PAL.cream);
-  text('COME PARA RECUPERAR ENERGÍA', W/2, 118, 6, PAL.cream);
-  text('EN VUELO: PRESIONA = ALETEA, SUELTA = CAE', W/2, 134, 6, PAL.cream);
-  if((tGlobal*1.6|0)%2===0) text('TOCA PARA EMPEZAR', W/2, 158, 8, PAL.gold);
+  panel(W/2-190, 22, 380, 208);
+  text('CÓMO VOLAR', W/2, 40, 10, PAL.gold);
+  text('MANTÉN PRESIONADO = CORRES (CONSUME ENERGÍA)', W/2, 60, 6, PAL.cream);
+  text('CORRE EN BAJADAS PARA TOMAR IMPULSO', W/2, 74, 6, PAL.cream);
+  text('CORRER EN SUBIDAS FRENA Y TE DEVUELVE:', W/2, 88, 6, PAL.cream);
+  text('ÚSALO SI QUEDAS ATORADO ENTRE COLINAS', W/2, 102, 6, PAL.cream);
+  text('COME PARA RECUPERAR ENERGÍA', W/2, 122, 6, PAL.cream);
+  text('SOBRE AGUA: MANTÉN PRESIONADO = ALETEA', W/2, 142, 6, PAL.cream);
+  text('SUELTA = BAJA', W/2, 156, 6, PAL.cream);
+  if((tGlobal*1.6|0)%2===0) text('TOCA PARA EMPEZAR', W/2, 186, 8, PAL.gold);
 }
 
 function drawLaunch(){
   drawSky(); drawParallax(); drawTerrain(); drawItems(); drawFarmScene(); drawPig();
-  panel(W/2-136, 30, 272, 52);
-  text(playerName, W/2, 48, 9, PAL.gold);
-  text(tutorialActive ? '¡TOCA PARA SALTAR Y APRENDER A VOLAR!' : '¡TOCA PARA SALTAR DEL GRANERO!', W/2, 66, 7, PAL.cream);
+  if(tutorialActive){
+    panel(W/2-160, 30, 320, 66);
+    text(playerName, W/2, 48, 9, PAL.gold);
+    text('PRESIONA LA PANTALLA PARA SALTAR,', W/2, 66, 7, PAL.cream);
+    text('NO SUELTES PARA APROVECHAR LA BAJADA', W/2, 80, 7, PAL.cream);
+  } else {
+    panel(W/2-160, 30, 320, 66);
+    text(playerName, W/2, 48, 9, PAL.gold);
+    text('PRESIONA PANTALLA PARA SALTAR, MANTÉN', W/2, 66, 7, PAL.cream);
+    text('PRESIONADO PARA CORRER Y TOMAR IMPULSO', W/2, 80, 7, PAL.cream);
+  }
 }
 
 function drawDone(dt){
