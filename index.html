@@ -618,17 +618,28 @@ let musicQueue = [];
 const musicEl = new Audio();
 musicEl.volume = musicVol;
 musicEl.addEventListener('ended', playNextTrack);
-
-function shuffle(arr){
-  const a = arr.slice();
-  for(let i=a.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]; }
-  return a;
-}
+// si el navegador bloquea play() (política de autoplay: a veces ni el primer
+// gesto de usuario alcanza, sobre todo en recargas donde el "media
+// engagement" de la página bajó), antes el error se tragaba en silencio y
+// la música quedaba muda el resto de la sesión, sin ningún reintento. Ahora
+// se marca pendiente y musicRetryIfNeeded() — llamada en CADA press(), que
+// es un gesto de usuario real — reintenta hasta que efectivamente arranque.
+let musicPlayPending = false;
 function playNextTrack(){
   if(musicQueue.length === 0) musicQueue = shuffle(MUSIC_TRACKS);
   const track = musicQueue.shift();
   musicEl.src = track;
-  musicEl.play().catch(()=>{}); // el navegador puede bloquear hasta el primer gesto del usuario
+  musicPlayPending = false;
+  musicEl.play().catch(()=>{ musicPlayPending = true; });
+}
+function musicRetryIfNeeded(){
+  if(!musicPlayPending) return;
+  musicEl.play().then(()=>{ musicPlayPending = false; }).catch(()=>{});
+}
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
 }
 function startMusicForNewRun(){
   // cada partida nueva arranca con una canción distinta de la cola aleatoria
@@ -924,13 +935,6 @@ let tutFrozen = false;  // true mientras el mundo está congelado esperando que 
 let tutFrozenT = 0;     // segundos reales transcurridos desde que se congeló (independiente del dt del mundo, que es 0)
 const TUT_FROZEN_GRACE = 3; // segundos antes de pasar del mensaje inicial a "deja de tocar la pantalla"
 let tutHasReleased = false; // ya soltó al menos una vez desde que se congeló
-const TUT_SEEN_KEY = 'cerdoicario-tutorial-visto';
-function hasSeenTutorial(){
-  try{ return localStorage.getItem(TUT_SEEN_KEY) === '1'; }catch(e){ return false; }
-}
-function markTutorialSeen(){
-  try{ localStorage.setItem(TUT_SEEN_KEY, '1'); }catch(e){}
-}
 function openTutorialIntro(){
   state = ST.TUTORIAL; // pantalla de bienvenida; el juego arranca al tocar
 }
@@ -956,7 +960,6 @@ function startTutorial(){
 function endTutorial(){
   tutorialActive = false;
   BIOME_SPAN = BIOME_SPAN_NORMAL; WATER_SPAN = WATER_SPAN_NORMAL;
-  markTutorialSeen();
   state = ST.TITLE;
 }
 // tocó tierra firme al otro lado del lago: lección completa, se corta ahí
@@ -2295,10 +2298,14 @@ async function confirmName(){
 
 function press(){
   audio();
+  musicRetryIfNeeded(); // reintenta si un play() anterior fue bloqueado por el navegador
   switch(state){
     case ST.TITLE:
+      // el tap siempre entra directo al juego, nunca al tutorial — el
+      // tutorial queda disponible solo desde su propio botón ("▶ TUTORIAL")
+      // para que tocar la pantalla haga siempre lo mismo, sin sorpresas
       sfx.ui();
-      if(!hasSeenTutorial()) openTutorialIntro(); else startRun();
+      startRun();
       break;
     case ST.TUTORIAL: sfx.ui(); startTutorial(); break;
     case ST.LAUNCH: doLaunch(); pressed = true; break;
