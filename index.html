@@ -19,10 +19,17 @@
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { width:100%; height:100%; background:#14101c; overflow:hidden; touch-action:none;
     overscroll-behavior:none; font-family:'Press Start 2P','px',monospace; }
-  #wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  /* --- #stageV: layout vertical completo (tel de pie), un solo #wrap que
+     ocupa toda la pantalla. El juego SIGUE siendo horizontal por dentro
+     (mismas colinas, mismo gameplay) — solo el marco alrededor del canvas
+     es vertical, así que el teléfono nunca necesita girarse. El HUD
+     (DIST/PTS/ENERGÍA/VEL/etc) se dibuja DENTRO del canvas, en la zona de
+     cielo (ver drawHUD) — no hay franjas HTML separadas. --- */
+  #stageV { position:fixed; inset:0; display:flex; flex-direction:column;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  #wrap { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; }
   canvas { image-rendering:pixelated; image-rendering:crisp-edges; background:#000;
-    box-shadow:0 0 0 4px #2b1b2e, 0 0 60px #000; }
+    box-shadow:0 0 0 4px #2b1b2e, 0 0 60px #000; max-width:100%; max-height:100%; }
   #nameOverlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:rgba(10,6,16,.75); z-index:10; }
   #nameBox { background:#3a2a44; border:4px solid #f2d16b; padding:24px; text-align:center;
@@ -44,34 +51,45 @@
   #nameBox #nameSkip { display:block; margin:12px auto 0; font-family:inherit; font-size:8px; cursor:pointer;
     background:none; color:#c9b8a8; border:none; text-decoration:underline; padding:6px; }
   #nameBox #nameSkip:hover { color:#f5ecd7; }
-  /* --- botón de engrane (ajustes de audio): esquina, visible en título/game-over --- */
-  #settingsGear { position:fixed; top:calc(10px + env(safe-area-inset-top)); right:calc(10px + env(safe-area-inset-right));
-    z-index:8; width:36px; height:36px; font-size:18px; line-height:1; cursor:pointer;
-    background:#3a2a44; color:#f2d16b; border:3px solid #f2d16b; border-radius:6px;
+  /* --- botones flotantes sobre el canvas (engrane, omitir tutorial,
+     ranking, tutorial, guardar puntuación): tamaño táctil real, NO
+     proporcional al zoom del canvas — antes escalaban como si fueran
+     parte del pixel art del juego y quedaban ilegibles/imposibles de
+     tocar con precisión. Estándar de la industria para UI móvil: mínimo
+     44×44pt (iOS Human Interface Guidelines) / 48×48dp (Material Design),
+     con ≥8px de separación entre controles — acá se usan 48px de alto
+     mínimo y fuente 14px, fijos en CSS px reales de pantalla. --- */
+  #settingsGear { position:fixed; top:calc(12px + env(safe-area-inset-top)); right:calc(12px + env(safe-area-inset-right));
+    z-index:8; width:48px; height:48px; font-size:22px; line-height:1; cursor:pointer;
+    background:#3a2a44; color:#f2d16b; border:3px solid #f2d16b; border-radius:8px;
     display:none; align-items:center; justify-content:center; touch-action:manipulation; }
   #settingsGear.show { display:flex; }
   #settingsGear:hover { background:#4a3556; }
   /* --- botón de "omitir tutorial": esquina opuesta, solo visible jugando el tutorial --- */
-  #skipTutBtn { position:fixed; top:calc(10px + env(safe-area-inset-top)); left:calc(10px + env(safe-area-inset-left));
-    z-index:8; font-family:inherit; font-size:9px; line-height:1; cursor:pointer; padding:8px 10px;
-    background:#3a2a44; color:#f2d16b; border:3px solid #f2d16b; border-radius:6px;
+  #skipTutBtn { position:fixed; top:calc(12px + env(safe-area-inset-top)); left:calc(12px + env(safe-area-inset-left));
+    z-index:8; font-family:inherit; font-size:13px; line-height:1; cursor:pointer; padding:14px 16px; min-height:48px;
+    background:#3a2a44; color:#f2d16b; border:3px solid #f2d16b; border-radius:8px;
     display:none; align-items:center; justify-content:center; touch-action:manipulation; }
   #skipTutBtn.show { display:flex; }
   #skipTutBtn:hover { background:#4a3556; }
   /* --- botones de "ranking" y "tutorial" del título: posicionados por JS
      (positionOverlayBtns) siguiendo el rect real del canvas escalado, para
      quedar alineados con el contenido dibujado dentro sin importar el zoom --- */
-  #rankingBtn, #tutorialBtn, #saveScoreBtn { position:fixed; z-index:8; font-family:inherit; font-size:6px;
-    line-height:1; cursor:pointer; padding:5px 8px; white-space:nowrap;
-    background:#3a2a44; color:#f2d16b; border:2px solid #f2d16b; border-radius:5px;
+  #rankingBtn, #tutorialBtn, #saveScoreBtn, #retryBtn { position:fixed; z-index:8; font-family:inherit; font-size:13px;
+    line-height:1; cursor:pointer; padding:14px 20px; min-height:48px; white-space:nowrap;
+    background:#3a2a44; color:#f2d16b; border:3px solid #f2d16b; border-radius:8px;
     display:none; align-items:center; justify-content:center; touch-action:manipulation; }
-  #rankingBtn.show, #tutorialBtn.show, #saveScoreBtn.show { display:flex; }
+  #rankingBtn.show, #tutorialBtn.show, #saveScoreBtn.show, #retryBtn.show { display:flex; }
   #rankingBtn:hover, #tutorialBtn:hover, #saveScoreBtn:hover { background:#4a3556; }
   /* botón de guardar: dorado sólido, para que destaque como la acción
      principal deseada en la pantalla de resultados (a diferencia de
      ranking/tutorial, que son secundarios) */
   #saveScoreBtn { background:#f2d16b; color:#3a2a44; }
   #saveScoreBtn:hover { background:#ffe08a; }
+  /* reintentar: verde sólido — es la acción más frecuente tras morir, y
+     antes solo se podía tocando la pantalla, que no era nada evidente */
+  #retryBtn { background:#7ac74f; color:#1b1126; border-color:#a8e87a; }
+  #retryBtn:hover { background:#8fdc62; }
   #settingsOverlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:rgba(10,6,16,.75); z-index:11; }
   #settingsOverlay.show { display:flex; }
@@ -85,30 +103,17 @@
   #settingsBox button { font-family:inherit; font-size:12px; margin-top:8px; padding:10px 18px; cursor:pointer;
     background:#b8452c; color:#ffe9c9; border:3px solid #f2d16b; touch-action:manipulation; }
   #settingsBox button:hover { background:#d95f38; }
-  /* --- aviso de "gira tu teléfono": el juego es para landscape --- */
-  #rotateHint { display:none; position:fixed; inset:0; z-index:30; background:#14101c;
-    color:#f5ecd7; align-items:center; justify-content:center; text-align:center;
-    padding:28px; font-family:'Press Start 2P','px',monospace; }
-  #rotateHint .icon { font-size:44px; display:block; margin-bottom:18px; animation:spinPhone 1.8s ease-in-out infinite; }
-  #rotateHint p { font-size:11px; line-height:2; color:#f2d16b; }
-  @keyframes spinPhone { 0%,100%{ transform:rotate(0deg); } 50%{ transform:rotate(-90deg); } }
-  /* solo en dispositivos táctiles reales (celular/tablet); nunca en computadora,
-     aunque la ventana del navegador esté angosta o en forma "vertical" */
-  @media (orientation: portrait) and (hover: none) and (pointer: coarse) {
-    #wrap { display:none; }
-    #rotateHint { display:flex; }
-  }
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 </head>
 <body>
-<div id="wrap"><canvas id="game" width="480" height="270"></canvas></div>
-
-<div id="rotateHint"><div>
-  <span class="icon">📱</span>
-  <p>GIRA TU TELÉFONO<br>PARA JUGAR<br>EN HORIZONTAL</p>
-</div></div>
+<!-- todo el HUD de juego (DIST/PTS/ENERGÍA/VEL/etc) vuelve a dibujarse
+     DENTRO del canvas, en la zona de cielo — ver drawHUD(). #stageV ya no
+     tiene franjas HTML separadas, el canvas ocupa toda la pantalla. -->
+<div id="stageV">
+  <div id="wrap"><canvas id="game" width="480" height="600"></canvas></div>
+</div>
 
 <div id="nameOverlay">
   <div id="nameBox">
@@ -146,6 +151,7 @@
 <button id="rankingBtn" aria-label="Ver ranking">🏆 RANKING</button>
 <button id="tutorialBtn" aria-label="Ver tutorial">▶ TUTORIAL</button>
 <button id="saveScoreBtn" aria-label="Guardar puntuación">💾 GUARDAR PUNTUACIÓN</button>
+<button id="retryBtn" aria-label="Volver a intentar">↻ REINTENTAR</button>
 
 <script>
 /* =====================================================================
@@ -157,23 +163,41 @@
 'use strict';
 
 const GAME_VERSION = '0.0.1';
-const W = 480, H = 270;
+// W es fijo (define la escala horizontal del pixel art). H es DINÁMICO:
+// se recalcula en fit() según el alto real disponible en pantalla, para
+// que el canvas llene #wrap por completo sin dejar franjas negras arriba/
+// abajo — antes H=600 fijo dejaba sobrante en pantallas angostas (el
+// ancho, no el alto, era el factor limitante). Con H dinámico se dibuja
+// MÁS cielo/tierra real (no una imagen estirada): todo el código ya usa
+// fracciones de H (H*0.4, H/2, H-8...) así que se ajusta solo; los
+// paneles de menú (título/resultados/ranking/tutorial-intro) se
+// reescribieron con fracciones de H en vez de píxeles fijos por lo mismo.
+const W = 480;
+let H = 600; // valor inicial; fit() lo recalcula antes del primer frame real
 const cv = document.getElementById('game');
 const cx = cv.getContext('2d');
 cx.imageSmoothingEnabled = false;
 
-/* ---------- escalado: entero en pantallas grandes, fraccional en celulares ---------- */
+/* ---------- escalado: el canvas llena #wrap sin dejar negro, ajustando H ---------- */
+const wrapEl = document.getElementById('wrap');
 function fit(){
-  const availW = innerWidth, availH = innerHeight;
-  const fracScale = Math.min(availW / W, availH / H);
-  const intScale = Math.max(1, Math.floor(fracScale));
-  // en pantallas chicas (celular en landscape) el escalado entero suele dejar
-  // franjas negras enormes; ahí preferimos llenar la pantalla aunque el pixel
-  // art no caiga en múltiplos exactos. En pantallas grandes, escala entera nítida.
-  const isSmallScreen = Math.min(availW, availH) < 620;
-  const s = (isSmallScreen || intScale < 1) ? fracScale : intScale;
-  cv.style.width  = (W * s) + 'px';
-  cv.style.height = (H * s) + 'px';
+  // se mide el rect real de #wrap (toda la pantalla, dentro del padding de
+  // safe-area) en vez de innerWidth/innerHeight directamente, para
+  // respetar los insets del notch/barra de estado en cualquier dispositivo.
+  const r = wrapEl.getBoundingClientRect();
+  const availW = r.width, availH = r.height;
+  // el ancho SIEMPRE llena availW a escala entera o fraccional (igual que
+  // antes); H se recalcula para que, a esa misma escala, el alto TAMBIÉN
+  // llene availH exactamente — así nunca sobra negro en ningún eje.
+  const s = availW / W; // escala real del pixel art en pantalla
+  const newH = Math.round(availH / s);
+  if(newH !== H && newH > 0){
+    H = newH;
+    cv.height = H; // redimensiona el buffer real de dibujo, no solo el CSS
+    cx.imageSmoothingEnabled = false; // cambiar cv.height resetea el contexto 2D
+  }
+  cv.style.width  = availW + 'px';
+  cv.style.height = availH + 'px';
   // positionOverlayBtns se declara más abajo en el script (tras rankingBtn/
   // tutorialBtn); fit() corre una vez de entrada antes de llegar ahí, así
   // que no se puede llamar de forma incondicional sin un ReferenceError
@@ -570,6 +594,16 @@ const FLAG = makeSprite([
 const TITLE_LOGO = new Image();
 TITLE_LOGO.src = 'images/title.png';
 
+/* --- esqueletos enterrados y OVNI: PNGs ya recortados y escalados al
+   tamaño de juego (los originales de 2000x2000 pesaban 1-2MB cada uno).
+   Mismo patrón de precarga que el logo: quien los dibuja comprueba
+   .complete antes, para no pintar un cuadro roto mientras cargan. --- */
+function loadImg(src){ const im = new Image(); im.src = src; return im; }
+const SKEL_REX    = loadImg('images/skel-rex.png');
+const SKEL_MOSSY  = loadImg('images/skel-mossy.png');
+const SKEL_WINGED = loadImg('images/skel-winged.png');
+const UFO_SPR     = loadImg('images/ufo-sprite.png');
+
 /* =====================================================================
    AUDIO — chiptune + efectos (WebAudio)
    ===================================================================== */
@@ -755,6 +789,11 @@ function baseGroundY(x){
    Al final de esa franja de agua, una curva corta reconecta con la
    tierra firme normal del bioma que sigue. */
 const RAMP_LEN = 340, RAMP_H = 170, APPR_LEN = 700, APPR_DROP = 140, LAND_LEN = 300;
+// rampa/muelle de SALIDA del lago: cuánto sobresale su borde por encima del
+// nivel del agua (EXIT_LIP) y en cuánto ancho baja hasta el terreno normal.
+// Sin esto, el terreno de llegada podía quedar por debajo del nivel del lago
+// y el agua asomaba por encima de la tierra de aterrizaje.
+const EXIT_LIP = 26, EXIT_RAMP_LEN = LAND_LEN;
 const WATER_SPAN_NORMAL = 8000; // 2000m * 4px/m: ancho del lago entre biomas
 let WATER_SPAN = WATER_SPAN_NORMAL; // el tutorial usa un lago mucho más corto para la lección de vuelo
 function rampAt(x){
@@ -773,6 +812,37 @@ function waterZoneAt(x){
   return (x >= waterStart && x <= waterEnd) ? {R, waterStart, waterEnd} : null;
 }
 function isWaterAt(x){ return waterZoneAt(x) !== null; }
+// tramo final de la rampa (justo antes de R) bajo el que también hay agua:
+// antes, TODA la rampa (340 unidades de ancho, sube 170 de alto) se
+// rellenaba de tierra sólida hasta el fondo de la pantalla, y esa ladera
+// larga es justo lo que se veía como una duna/diagonal moviéndose con el
+// cerdo mientras caminaba por la rampa entera. Un primer intento usó una
+// FRACCIÓN fija del ancho de la rampa para decidir dónde poner agua debajo,
+// pero eso hacía que en gran parte de ese tramo la propia rampa (el tablón)
+// quedara POR DEBAJO del nivel del agua (que está fijo, pegado a la punta),
+// así que el agua se veía "por encima" de la tierra/rampa — justo el bug
+// reportado. Ahora se compara la altura REAL: una columna es "dock" (agua
+// debajo) solo si en ese punto la rampa ya quedó más alta que el nivel del
+// agua, así el tablón nunca quede hundido bajo el agua.
+function isRampDockAt(x){
+  const n = Math.floor((x + RAMP_LEN + APPR_LEN) / BIOME_SPAN);
+  if(n < 1) return false;
+  const R = n * BIOME_SPAN;
+  if(x <= R - RAMP_LEN || x > R) return false;
+  return groundY(x) < waterLevelAt(x); // Y menor = más arriba en pantalla
+}
+// nivel del lago (yWater) para el tramo de biome-transition que contiene x —
+// misma fórmula que dentro de groundY, pero utilizable también para las
+// columnas del muelle (que groundY sigue reportando como rampa, no agua)
+function waterLevelAt(x){
+  const n = Math.floor((x + RAMP_LEN + APPR_LEN) / BIOME_SPAN);
+  const R = n * BIOME_SPAN;
+  const zStart = R - RAMP_LEN - APPR_LEN;
+  const yStart = baseGroundY(zStart);
+  const yValley = yStart + APPR_DROP;
+  const yLip = yValley - RAMP_H;
+  return yLip + RAMP_H*0.12;
+}
 function groundY(x){
   const n = Math.floor((x + RAMP_LEN + APPR_LEN) / BIOME_SPAN);
   if(n >= 1){
@@ -797,9 +867,16 @@ function groundY(x){
         // lago/mar: nivel de agua fijo, no hay suelo sólido en toda esta franja
         return yWater;
       } else {
-        // curva corta de vuelta a tierra firme del siguiente bioma
-        const t2 = (x - waterEnd) / LAND_LEN;
-        return yWater + (yLand - yWater) * (1 - Math.cos(Math.PI*t2)) * 0.5;
+        // RAMPA DE SALIDA (espejo de la de entrada): el terreno normal de
+        // este punto (yLand) puede quedar POR DEBAJO del nivel del lago, y
+        // entonces el agua asomaba por encima de la tierra de aterrizaje.
+        // Ahora la salida arranca en un muelle elevado sobre el agua
+        // (EXIT_LIP por encima de yWater) y baja como rampa de madera
+        // hasta empalmar con el terreno normal en zEnd, así el agua queda
+        // siempre contenida por debajo del borde de madera.
+        const yExitLip = yWater - EXIT_LIP;
+        const u = Math.min(1, (x - waterEnd) / EXIT_RAMP_LEN);
+        return yExitLip + (yLand - yExitLip) * (1 - Math.cos(Math.PI*u)) * 0.5;
       }
     }
   }
@@ -995,6 +1072,7 @@ let skipTutBtnShown = false;
 let rankingBtnShownPrev = false;
 let tutorialBtnShownPrev = false;
 let saveScoreBtnShownPrev = false;
+let retryBtnShownPrev = false;
 let overlayBtnsStatePrev = -1;
 
 function startRun(){
@@ -1466,7 +1544,10 @@ function updateZoom(dt){
   const heightFrac = airHeight > 65 ? Math.max(0.46, 1 - (airHeight-65)/240) : 1;
   // en fase de vuelo el zoom se queda fijo un poco alejado, sin bombear
   const target = pig.mode==='FLIGHT' ? BASE_ZOOM*0.8 : heightFrac * BASE_ZOOM;
-  zoom += (target - zoom) * Math.min(1, dt*1.17); // 10% más lento que antes
+  // velocidad de transición del zoom hacia su objetivo: más bajo = más
+  // lento/suave (antes 1.17 se sentía agresivo, sobre todo al ganar altura
+  // rápido o al entrar en modo vuelo, donde el target puede saltar bastante)
+  zoom += (target - zoom) * Math.min(1, dt*0.65);
   // con el zoom afuera hay que "pintar" más allá del lienzo para que ninguna
   // capa (cielo, montañas, terreno...) se quede corta y deje bordes vacíos
   viewMX = W * (1/zoom - 1) / 2;
@@ -1475,11 +1556,31 @@ function updateZoom(dt){
 function updateCam(dt){
   const tx = pig.x - W*0.32;
   camX += (tx - camX) * Math.min(1, dt*8);
-  let ty = pig.y - H*0.36;   // el cerdo queda más arriba en pantalla: se ve más suelo abajo
+  // el cerdo (y el horizonte con él) queda ABAJO en pantalla: mucho cielo
+  // arriba, poca tierra abajo. fracFromTop = (pig.y-camY)/H es la fracción
+  // de pantalla que es CIELO — a más grande este número, más abajo vive el
+  // horizonte y más cielo se ve. 0.75 ≈ 75% cielo / 25% tierra.
+  // El clamp de "que siempre se vea algo de suelo" está pensado para
+  // vuelos altos (zoom alejado, viewH>H, la cámara podría subir tanto que
+  // el suelo desaparezca). El problema real: con BASE_ZOOM=0.9 (el zoom
+  // "normal", ni siquiera en vuelo), viewH YA es ~11% mayor que H — el
+  // término "gmax-viewH" del clamp por sí solo (sin importar qué tan chico
+  // sea el margen) ya daba un resultado MÁS restrictivo que el anclaje de
+  // arriba, así que el clamp dominaba SIEMPRE, incluso en tierra firme
+  // (llegaba a dar ~90% de tierra sin importar el anclaje pedido). Se
+  // interpola el CLAMP COMPLETO con airFrac (0 en tierra, 1 en vuelo
+  // alto): en tierra manda el anclaje puro sin interferencia; el clamp de
+  // seguridad solo aparece de verdad, gradualmente, al ganar altura real
+  // — interpolación continua, no un salto entre dos modos (eso generaba
+  // el "tirón" de cámara al despegar que ya se había visto antes).
+  let ty = pig.y - H*0.75;
   const gmax = groundY(pig.x);
   const viewH = H / zoom;                    // alto de mundo visible con el zoom actual
-  ty = Math.min(ty, gmax - viewH + 76/zoom);  // que siempre se vea suelo
-  ty = Math.max(ty, -320/zoom);
+  const airFrac = Math.max(0, Math.min(1, (BASE_ZOOM - zoom) / (BASE_ZOOM - MIN_ZOOM)));
+  const groundMargin = H * 0.1968;
+  const tyClamp = gmax - viewH + groundMargin/zoom;
+  ty = ty + (Math.min(ty, tyClamp) - ty) * airFrac; // mezcla ty puro -> min(ty,clamp) según airFrac
+  ty = Math.max(ty, -H*0.5334/zoom);
   camY += (ty - camY) * Math.min(1, dt*5);
   if(shake > 0) shake = Math.max(0, shake - dt*18);
 }
@@ -1513,8 +1614,11 @@ function drawSky(){
   cx.globalAlpha = 0.08;
   for(let y=0;y<H;y+=4){ cx.fillStyle = y%8?'#000':'#fff'; cx.fillRect(0,y,W,1); }
   cx.globalAlpha = 1;
-  // sol — parallax mínimo, casi fijo, para dar algo de vida sin que "respire" con el zoom
-  const sx = W-88 - camX*0.01, sy = 62 + camY*0.02;
+  // sol — parallax mínimo, casi fijo, para dar algo de vida sin que "respire" con el zoom.
+  // sy en fracción de H (antes fijo en 62px): con H dinámico grande y el
+  // HUD dibujado en la franja superior del canvas, un sol pegado arriba
+  // quedaba tapado/superpuesto con los paneles de DIST/PTS/VEL
+  const sx = W-88 - camX*0.01, sy = H*0.11 + camY*0.02;
   cx.fillStyle = PAL.sun; cx.beginPath(); cx.arc(sx,sy,22,0,7); cx.fill();
   cx.fillStyle = PAL.sunCore; cx.beginPath(); cx.arc(sx,sy,15,0,7); cx.fill();
   // nubes
@@ -1522,12 +1626,105 @@ function drawSky(){
   const cloudSpan = W + 160;
   for(let i=0;i<9;i++){
     const cxp = ((i*173 + 40 - camX*0.06) % cloudSpan) - 80;
-    const cyp = 30 + (i*37)%70 + camY*0.03;
+    const cyp = H*0.05 + (i*37)%(H*0.12) + camY*0.03;
     cx.globalAlpha = 0.75;
     cx.fillRect(px(cxp),px(cyp),34,7); cx.fillRect(px(cxp+6),px(cyp-4),20,4); cx.fillRect(px(cxp+8),px(cyp+7),18,4);
   }
   cx.globalAlpha = 1;
+  drawSkyCritters();
   });
+}
+
+// --- aves y OVNIs: cruzan el cielo de fondo de vez en cuando, como sorpresa
+// ocasional (no decoración constante). Mismo patrón que los castillos de
+// drawHillLayer: ranuras espaciadas con hueco aleatorio, posición
+// determinística por semilla — el mismo tramo de cielo siempre muestra lo
+// mismo, no aparecen/desaparecen al azar cada frame. Viven en withFlatBackground
+// (llamadas desde drawSky), así no reaccionan al zoom ni a camY: son fondo
+// de verdad, muy lejano.
+function drawSkyCritters(){
+  // bandada de aves: más frecuente, parallax algo más rápido que las nubes.
+  // birdSpace se pensó como "aparece cada ~550m que RECORRE el jugador"
+  // (2200 unidades de mundo). Con parallax=0.09, indexar directo sobre
+  // birdOff=camX*0.09 hacía que esas 2200 unidades fueran del espacio ya
+  // reducido, no de camX real — el espaciado real terminaba siendo
+  // birdSpace/parallax (~6111m) en vez de ~550m, y la primera bandada
+  // tardaba miles de metros en aparecer. Se escala el espaciado por el
+  // parallax ANTES de indexar (spaceInOff), así birdSpace vuelve a
+  // significar metros reales de avance, sin importar el parallax de la capa.
+  const birdParallax = 0.09, birdSpace = 2200 * birdParallax, birdOff = camX*birdParallax;
+  const b0 = Math.floor(birdOff/birdSpace)-1, b1 = Math.ceil((birdOff+W)/birdSpace)+1;
+  for(let b=b0;b<b1;b++){
+    if(rand01(b*3.1+11) < 0.6) continue; // hueco: solo ~40% de las ranuras tienen bandada
+    const wx = b*birdSpace + birdSpace*0.5 + (rand01(b*1.7+11)-0.5)*birdSpace*0.4;
+    const sx = wx - birdOff;
+    if(sx < -60 || sx > W+60) continue;
+    const flockY = H*0.12 + rand01(b*2.9+11)*H*0.18;
+    const n = 3 + Math.floor(rand01(b*4.4+11)*3); // bandada de 3 a 5
+    for(let i=0;i<n;i++) drawBird(sx + (i-(n-1)/2)*16, flockY + Math.abs(i-(n-1)/2)*5);
+  }
+
+  // OVNI: menos frecuente que las aves — evento más raro/especial, pero
+  // calibrado para que sea factible verlo en una partida normal (antes,
+  // con el bug de escala corregido, la primera aparición típica quedaba
+  // en 6000-14000m — demasiado raro). Con este espaciado y hueco, la
+  // expectativa de la primera aparición ronda los ~1400m.
+  const ufoParallax = 0.14, ufoSpace = 2500 * ufoParallax, ufoOff = camX*ufoParallax;
+  const u0 = Math.floor(ufoOff/ufoSpace)-1, u1 = Math.ceil((ufoOff+W)/ufoSpace)+1;
+  for(let u=u0;u<u1;u++){
+    if(rand01(u*7.7+23) < 0.55) continue; // hueco: ~45% de las ranuras tienen OVNI
+    const wx = u*ufoSpace + ufoSpace*0.5 + (rand01(u*3.3+23)-0.5)*ufoSpace*0.5;
+    const sx = wx - ufoOff;
+    if(sx < -40 || sx > W+40) continue;
+    // franja de cielo LIBRE: antes salía en H*0.08–H*0.22, justo detrás del
+    // panel del HUD y sus avisos, así que quedaba tapado y en la práctica
+    // nunca se veía. Ahora vuela por debajo de todo eso.
+    const ufoY = H*0.30 + rand01(u*5.1+23)*H*0.16;
+    drawUfo(sx, ufoY);
+  }
+}
+
+// pájaro simple: silueta en "M" (dos trazos como alas abiertas), aletea
+// despacio con el tiempo global — nada de detalle, solo una mancha
+// reconocible como ave a la distancia. El color se elige según qué tan
+// claro/oscuro es el cielo alto del bioma actual (sky[0], donde vuelan):
+// silueta oscura contra cielo claro (lo normal), pero clara contra un
+// cielo nocturno (BOSQUE OSCURO, TIERRAS MÍSTICAS) para no perderse ahí.
+function drawBird(x, y){
+  const flap = Math.sin(tGlobal*4 + x*0.05) * 3;
+  cx.strokeStyle = skyIsDark() ? '#d8d4e0' : PAL.outline;
+  cx.lineWidth = 1.4;
+  cx.beginPath();
+  cx.moveTo(x-6, y-flap); cx.lineTo(x-1, y+2); cx.lineTo(x, y);
+  cx.lineTo(x+1, y+2); cx.lineTo(x+6, y-flap);
+  cx.stroke();
+}
+// "oscuro" = brillo percibido bajo (luma), umbral simple para decidir
+// contraste — mismo criterio que usaría cualquier chequeo de legibilidad
+function skyIsDark(){
+  const c = BIO.sky[0];
+  const r = parseInt(c.slice(1,3),16), g = parseInt(c.slice(3,5),16), b = parseInt(c.slice(5,7),16);
+  return (0.299*r + 0.587*g + 0.114*b) < 70;
+}
+
+// platillo volador: cuerpo ovalado + cúpula, con una lucecita que parpadea
+// — pura silueta, sin textura, para no competir visualmente con el terreno
+function drawUfo(x, y){
+  // platillo dibujado a mano (UFO_SPR): rosa/azul de alto contraste, se
+  // ve bien contra cualquier cielo, incluidos los biomas nocturnos
+  if(UFO_SPR.complete && UFO_SPR.naturalWidth){
+    const uw = 30, uh = uw * UFO_SPR.naturalHeight/UFO_SPR.naturalWidth;
+    // leve cabeceo, para que no se lea como una calcomanía pegada al cielo
+    const bob = Math.sin(tGlobal*1.6 + x*0.08) * 2;
+    cx.drawImage(UFO_SPR, px(x-uw/2), px(y-uh/2+bob), uw, uh);
+    return;
+  }
+  // respaldo vectorial mientras el PNG carga
+  cx.strokeStyle = '#1a1a24'; cx.lineWidth = 1;
+  cx.fillStyle = '#c9ccd6';
+  cx.beginPath(); cx.ellipse(x, y, 13, 4, 0, 0, 7); cx.fill(); cx.stroke();
+  cx.fillStyle = '#e8eaf2';
+  cx.beginPath(); cx.arc(x, y-4, 5, Math.PI, 0); cx.fill(); cx.stroke();
 }
 
 // altura de una capa de colinas de fondo en la posición de MUNDO wx: seno
@@ -1547,17 +1744,25 @@ function hillLayerY(wx, baseY, amp, wavelen, phase){
 function drawHillLayer(color, castleColor, baseY, amp, wavelen, phase, parallax, castleSpace){
   const off = camX*parallax;
 
-  // castillos ocasionales: uno cada castleSpace±, con hueco aleatorio entre
-  // medio para que no salgan siempre en fila; apoyados en hillLayerY real
+  // castillos ocasionales: uno cada castleSpace unidades de AVANCE REAL del
+  // jugador (camX). off=camX*parallax avanza más lento que camX cuando
+  // parallax<1 — antes se indexaba directo con castleSpace sobre "off",
+  // así que esas unidades terminaban siendo de "off", no de camX: con
+  // parallax=0.1 el espaciado real resultaba 10x más grande de lo pensado
+  // (y la primera aparición tardaba igual de más). Se corrige escalando el
+  // espaciado por parallax ANTES de indexar en el espacio de "off", así
+  // castleSpace sigue significando "cada tantos metros que camina el
+  // jugador", sin importar qué tan lento sea el parallax de esta capa.
   if(castleSpace){
-    const c0 = Math.floor(off/castleSpace)-1, c1 = Math.ceil((off+W)/castleSpace)+1;
+    const spaceInOff = castleSpace * parallax;
+    const c0 = Math.floor(off/spaceInOff)-1, c1 = Math.ceil((off+W)/spaceInOff)+1;
     for(let c=c0;c<c1;c++){
       if(rand01(c*5.3+phase) < 0.45) continue; // no todas las ranuras tienen castillo
-      const wx = c*castleSpace + castleSpace*0.5 + (rand01(c*2.3+phase)-0.5)*castleSpace*0.3;
-      const sx = wx - off;
+      const layerX = c*spaceInOff + spaceInOff*0.5 + (rand01(c*2.3+phase)-0.5)*spaceInOff*0.3;
+      const sx = layerX - off;
       if(sx < -60 || sx > W+60) continue;
       const scale = 0.6 + rand01(c*4.1+phase)*0.4;
-      drawSilhouetteCastle(sx, hillLayerY(wx, baseY, amp, wavelen, phase), scale, castleColor);
+      drawSilhouetteCastle(sx, hillLayerY(sx+off, baseY, amp, wavelen, phase), scale, castleColor);
     }
   }
 
@@ -1654,6 +1859,98 @@ function drawPineTree(x, groundY, h){
   cx.fillRect(px(x-2), px(groundY-5), 4, 7);
 }
 
+// textura de tierra: grilla de motitas/gránulos, posición y tamaño con
+// jitter determinístico por celda (rand01), ancladas a coordenadas de
+// MUNDO (wx = sx+camX) — igual que el resto del terreno. Reemplaza las
+// rayas diagonales que antes tenían su propio parallax (camX*0.7) y por
+// eso se sentían "generándose"/deslizando aparte del resto del escenario.
+// Se llama desde DENTRO del clip de drawTerrain: solo pinta donde ya hay
+// tierra, sin necesidad de saber la forma del terreno en cada columna.
+function drawDirtTexture(mx, my){
+  const cell = 14;
+  // el rango de filas de grilla también debe calcularse en coordenadas de
+  // MUNDO (camY + ...), no de pantalla — antes usaba solo my/H, así que la
+  // grilla vertical quedaba clavada a la cámara en vez de al terreno: al
+  // subir/bajar camY (el cerdo sube o baja colinas), toda la textura
+  // "flotaba" con la cámara en el eje Y en vez de quedarse quieta en el suelo
+  const y0 = Math.floor((camY-my)/cell)-1, y1 = Math.ceil((camY+H+my)/cell)+1;
+  const x0 = Math.floor((camX-mx)/cell)-1, x1 = Math.ceil((camX+W+mx)/cell)+1;
+  for(let gy=y0; gy<y1; gy++){
+    for(let gx=x0; gx<x1; gx++){
+      const seed = gx*13.7 + gy*91.3;
+      if(rand01(seed) < 0.55) continue; // no todas las celdas tienen mota: da aire entre ellas
+      const wx = gx*cell + rand01(seed+1)*cell;
+      const wy = gy*cell + rand01(seed+2)*cell;
+      const sx = wx - camX, sy = wy - camY;
+      const sz = 2 + (rand01(seed+3)*2|0);
+      // BIO solo trae dirt/dirtStripe por bioma (no un "dirtDk" propio);
+      // se deriva un tercer tono oscureciendo dirtStripe, mismo truco que
+      // ya usan las capas de fondo (mix()) para variar sin declarar paletas nuevas
+      const r4 = rand01(seed+4);
+      cx.fillStyle = r4 < 0.4 ? BIO.dirtStripe : (r4 < 0.75 ? mix(BIO.dirtStripe,'#000000',0.35) : mix(BIO.dirt,'#ffffff',0.15));
+      cx.fillRect(px(sx), px(sy), sz, sz);
+    }
+  }
+}
+
+// --- huesos enterrados: cráneos/fémures/costillas asomando en el subsuelo,
+// como sorpresa ocasional (mismo patrón de ranura espaciada + semilla que
+// aves/OVNIs y castillos). Se llaman desde DENTRO del clip de drawTerrain,
+// así que basta con dibujar en la profundidad que corresponda — el propio
+// clip se encarga de que nunca "floten" fuera de la tierra visible.
+function drawBuriedBones(mx){
+  // esqueletos de dinosaurio enterrados, con los PNG hechos a mano
+  // (SKEL_*): el T-Rex es el común, y el alado el "wow" infrecuente.
+  // El ancho pedido es en unidades de mundo; la altura sale sola del
+  // aspect ratio de cada PNG.
+  drawBoneField(mx, 1500, 41, 26, 60, [SKEL_REX, SKEL_MOSSY], 62);
+  drawBoneField(mx, 4200, 67, 40, 90, [SKEL_WINGED], 104);
+}
+// Profundidad mínima de tierra que debe quedar SIEMPRE por encima del
+// borde superior del sprite, para que ningún hueso asome a la superficie.
+const BONE_COVER = 22;
+function drawBoneField(mx, space, seedBase, minDepth, maxDepth, sprites, spriteW){
+  const off = camX;
+  const c0 = Math.floor((off-mx)/space)-1, c1 = Math.ceil((off+W+mx)/space)+1;
+  for(let c=c0;c<c1;c++){
+    if(rand01(c*6.1+seedBase) < 0.6) continue; // hueco: ~40% de las ranuras tienen algo
+    const wx = c*space + space*0.5 + (rand01(c*2.6+seedBase)-0.5)*space*0.6;
+    const sx = wx - off;
+    if(sx < -mx-spriteW || sx > W+mx+spriteW) continue;
+    const spr = sprites[(rand01(c*5.3+seedBase)*sprites.length)|0];
+    if(!spr.complete || !spr.naturalWidth) continue;
+    const sw = spriteW, sh = sw * spr.naturalHeight/spr.naturalWidth;
+    // el terreno puede estar en pendiente bajo el sprite, así que la
+    // profundidad se mide contra el punto MÁS ALTO del suelo en todo su
+    // ancho (no solo en el centro): si no, en una bajada el extremo del
+    // esqueleto asomaba por encima del pasto
+    // perfil del suelo bajo todo el ancho del sprite (muestreo denso: con
+    // pocos puntos, en las rampas el punto más alto caía entre muestras)
+    let topGround = Infinity, botGround = -Infinity;
+    for(let t=0;t<=24;t++){
+      const g = groundY(wx - sw/2 + sw*t/24);
+      if(g < topGround) topGround = g;
+      if(g > botGround) botGround = g;
+    }
+    // en pendientes fuertes (rampas, laderas) no cabe un esqueleto tendido:
+    // hundirlo bajo el punto más alto lo dejaría flotando en el aire del
+    // lado bajo, y alinearlo con el lado bajo lo haría asomar arriba.
+    // Simplemente no se coloca ahí; hay de sobra en terreno más plano.
+    if(botGround - topGround > sh*0.5) continue;
+    const depth = minDepth + rand01(c*3.8+seedBase)*(maxDepth-minDepth);
+    // y del BORDE SUPERIOR del sprite, nunca menos de BONE_COVER bajo el
+    // punto MÁS ALTO del suelo en todo el ancho, así no asoma por ningún lado
+    const topY = topGround + Math.max(BONE_COVER, depth) - camY;
+    const flip = rand01(c*7.2+seedBase) < 0.5 ? -1 : 1;
+    cx.save();
+    cx.translate(px(sx), px(topY));
+    cx.scale(flip, 1);
+    cx.globalAlpha = 0.88; // ligeramente integrados con la tierra, no calcomanías
+    cx.drawImage(spr, px(-sw/2), 0, sw, sh);
+    cx.globalAlpha = 1;
+    cx.restore();
+  }
+}
 /* --- AGUA: reemplaza visualmente el terreno durante los primeros 15s de
    cada fase de vuelo. Usa la MISMA altura (groundY) que el terreno real,
    así que la colisión sigue siendo consistente; solo cambia el "disfraz". */
@@ -1663,7 +1960,16 @@ function drawPineTree(x, groundY, h){
 function fillWaterRange(xs, ys, i0, i1, my){
   if(i0 >= i1) return;
   const step = xs.length>1 ? xs[1]-xs[0] : 3;
-  const g = cx.createLinearGradient(0, 0, 0, H+my);
+  // el gradiente se ancla a la PROFUNDIDAD real del agua (desde su
+  // superficie ys[i0] hasta el fondo del canvas), no a coordenadas
+  // absolutas [0, H+my] — con H dinámico (puede ser grande) y el agua
+  // apareciendo cerca del horizonte, ys[i0] queda muy chico frente a H, así
+  // que casi todo el cuerpo de agua caía en el tramo final del gradiente
+  // (el azul casi negro '#0e3a68'), volviéndose indistinguible del fondo
+  // oscuro de la página — se veía como si el agua "terminara" a poca
+  // profundidad en vez de llenar todo el subsuelo, igual que la tierra.
+  const waterTop = ys[i0];
+  const g = cx.createLinearGradient(0, waterTop, 0, H+my);
   g.addColorStop(0, '#2a7ab8'); g.addColorStop(0.4, '#1a5a94'); g.addColorStop(1, '#0e3a68');
   cx.fillStyle = g;
   cx.beginPath();
@@ -1693,45 +1999,87 @@ function drawTerrain(){
   // se calcula la altura del terreno UNA sola vez por columna y se reutiliza
   // tanto para el relleno de tierra como para la franja de pasto — antes se
   // calculaba dos veces por columna, lo que pesaba sobre todo en vuelos largos
-  const xs = [], ys = [], isWater = [];
+  const xs = [], ys = [], isWater = [], isDock = [];
   for(let x = -mx|0; x <= W+mx; x += step){
-    xs.push(x); ys.push(groundY(x+camX) - camY); isWater.push(isWaterAt(x+camX));
+    const wx = x+camX;
+    xs.push(x); ys.push(groundY(wx) - camY); isWater.push(isWaterAt(wx));
+    // bajo el tramo final de la rampa (antes del agua) el subsuelo también
+    // se rellena de agua en vez de tierra — ver isRampDockAt
+    isDock.push(isRampDockAt(wx));
   }
 
   // el lago intermedio (si hay tramo en cámara) se dibuja como agua real,
   // recortado a solo esas columnas — la rampa y la tierra de alrededor
-  // conservan su relleno normal de tierra/pasto
+  // conservan su relleno normal de tierra/pasto. 1 columna de solape con
+  // los vecinos, mismo motivo que el subsuelo del muelle más abajo.
   let i = 0;
   while(i < xs.length){
     if(isWater[i]){
       let j = i; while(j < xs.length && isWater[j]) j++;
-      fillWaterRange(xs, ys, i, j, my);
+      fillWaterRange(xs, ys, Math.max(0,i-1), Math.min(xs.length,j+1), my);
       i = j;
     } else i++;
   }
+  // subsuelo del muelle (bajo el tramo final de la rampa): mismo nivel de
+  // agua que el lago siguiente, para que la rampa se vea como un muelle de
+  // madera elevado sobre el agua en vez de una duna de tierra larga.
+  // Cada tramo se dibuja con 1 columna de SOLAPE con sus vecinos (tierra a
+  // un lado, lago al otro) — sin este solape, dos polígonos rellenados por
+  // separado que solo se TOCAN en el borde dejan una fina línea de
+  // transparencia por el antialiasing del canvas en ese borde compartido,
+  // mostrando el cielo/fondo detrás como una línea vertical (bug reportado).
+  {
+    const yDock = [];
+    for(let k=0;k<xs.length;k++) yDock.push(isDock[k] ? waterLevelAt(xs[k]+camX) - camY : ys[k]);
+    let k = 0;
+    while(k < xs.length){
+      if(isDock[k] && !isWater[k]){
+        let m = k; while(m < xs.length && isDock[m] && !isWater[m]) m++;
+        const k0 = Math.max(0, k-1), m1 = Math.min(xs.length, m+1);
+        fillWaterRange(xs, yDock, k0, m1, my);
+        k = m;
+      } else k++;
+    }
+  }
 
-  // pasto + tierra con rayas — recortado a las columnas que NO son agua
+  // pasto + tierra con rayas — recortado a las columnas que NO son agua NI
+  // muelle (el muelle ya tiene agua debajo, dibujada arriba). Se arma un
+  // subpath POR CADA TRAMO CONTINUO de tierra (separado en isWater/isDock),
+  // en vez de un solo path que saltaba las columnas de agua con "continue"
+  // y luego conectaba el tramo siguiente con una línea recta por encima del
+  // agua — ese salto conectado es lo que se veía como una fina franja de
+  // tierra cruzando en diagonal/vertical sobre el agua (bug reportado).
   cx.save();
   cx.beginPath();
-  let started = false;
-  for(let k=0;k<xs.length;k++){
-    if(isWater[k]) continue;
-    if(!started){ cx.moveTo(xs[k], H+my); started = true; }
-    cx.lineTo(xs[k], ys[k]);
+  let anyDirt = false;
+  {
+    let k = 0;
+    while(k < xs.length){
+      if(isWater[k] || isDock[k]){ k++; continue; }
+      let m = k; while(m < xs.length && !isWater[m] && !isDock[m]) m++;
+      cx.moveTo(xs[k], H+my);
+      for(let j=k;j<m;j++) cx.lineTo(xs[j], ys[j]);
+      cx.lineTo(xs[m-1], H+my);
+      cx.closePath();
+      anyDirt = true;
+      k = m;
+    }
   }
-  if(started){ cx.lineTo(xs[xs.length-1], H+my); cx.closePath(); cx.fillStyle = BIO.dirt; cx.fill(); }
+  if(anyDirt){ cx.fillStyle = BIO.dirt; cx.fill(); }
   cx.clip();
-  cx.fillStyle = BIO.dirtStripe;
-  const off = -((camX*0.7) % 32);
-  for(let x=off-56-mx; x<W+mx+56; x+=32){
-    cx.save(); cx.translate(x, 0); cx.rotate(0.5);
-    cx.fillRect(0, -50-my, 9, (H+my*2)*2.2);
-    cx.restore();
-  }
+  // textura de tierra: motitas/gránulos fijos AL MUNDO (posición = camX +
+  // sx, no un offset propio con su propio parallax), así no "se generan"
+  // ni se deslizan al avanzar — quedan quietas como el resto del terreno,
+  // en vez de las rayas diagonales de antes que se movían a su propio ritmo
+  drawDirtTexture(mx, my);
+  // huesos enterrados: se dibujan DENTRO de este clip (la forma exacta del
+  // subsuelo), así nunca aparecen "flotando" sobre pasto/agua/cielo, sin
+  // importar la forma del terreno en ese punto
+  drawBuriedBones(mx);
   cx.restore();
-  // franja de pasto (reutiliza las alturas ya calculadas arriba), solo donde no es agua
+  // franja de pasto (reutiliza las alturas ya calculadas arriba), solo donde no es agua ni muelle
   for(let i=0;i<xs.length;i++){
-    if(isWater[i]) continue;
+    if(isWater[i] || isDock[i]) continue;
     const x = xs[i], wy = ys[i];
     cx.fillStyle = BIO.grass;   cx.fillRect(x, px(wy),   step, 7);
     cx.fillStyle = BIO.grassHi; cx.fillRect(x, px(wy),   step, 2);
@@ -1763,18 +2111,45 @@ function drawTerrain(){
       cx.fillStyle = PAL.woodDk;  cx.fillRect(px(sx3), px(sy3)+5, 4, 2);
       if(((wx2/4)|0)%6===0){ cx.fillStyle = PAL.outline; cx.fillRect(px(sx3), px(sy3), 1, 6); }
     }
-    // postes de soporte hasta el terreno de abajo
+    // postes de soporte: solo donde la rampa YA está por encima del agua
+    // (zona no-dock) tiene sentido un poste hundiéndose en tierra sólida —
+    // ahí baja hasta el fondo de pantalla, igual que el relleno de tierra
+    // (no hay "terreno de fondo" real que calcular en esta franja de
+    // transición, baseGroundY da valores sin sentido aquí y generaba
+    // postes larguísimos colgando de la nada). En la zona dock no se
+    // dibuja ningún poste: ese tramo de rampa ya está bajo el agua, así
+    // que no hay nada de madera visible para sostener.
     for(let wx2 = zx0+40; wx2 < R; wx2 += 56){
+      if(isRampDockAt(wx2)) continue;
       const topY = groundY(wx2) - camY;
-      const botY = baseGroundY(wx2) - camY;
-      if(botY > topY + 6){
-        cx.fillStyle = PAL.woodDk;
-        cx.fillRect(px(wx2-camX), px(topY+6), 4, botY-topY-6);
-      }
+      cx.fillStyle = PAL.woodDk;
+      cx.fillRect(px(wx2-camX), px(topY+6), 4, (H+my)-topY-6);
     }
     // banderola al final de la rampa
     const eY = groundY(R-2) - camY, eX = R - camX;
     cx.drawImage(FLAG, px(eX-4), px(eY-26), 16, 24);
+  }
+  // --- MUELLE DE SALIDA (al final del lago, espejo de la rampa de entrada) ---
+  for(let n = rn0; n <= rn1; n++){
+    const R = n * BIOME_SPAN;
+    const wEnd = R + WATER_SPAN;
+    if(wEnd > camX + W + mx || wEnd + EXIT_RAMP_LEN < camX - mx) continue;
+    // tablones: bajan desde el borde elevado sobre el agua hasta el terreno
+    for(let wx2 = wEnd; wx2 <= wEnd + EXIT_RAMP_LEN; wx2 += 4){
+      const sy3 = groundY(wx2) - camY;
+      const sx3 = wx2 - camX;
+      cx.fillStyle = PAL.wood;    cx.fillRect(px(sx3), px(sy3), 4, 5);
+      cx.fillStyle = PAL.woodDk;  cx.fillRect(px(sx3), px(sy3)+5, 4, 2);
+      if(((wx2/4)|0)%6===0){ cx.fillStyle = PAL.outline; cx.fillRect(px(sx3), px(sy3), 1, 6); }
+    }
+    // un solo poste corto en el borde que asoma sobre el agua — el resto
+    // del muelle apoya directo sobre la tierra de llegada, así que no
+    // llevan postes (enterrados en tierra maciza se veían como rayas)
+    {
+      const topY = groundY(wEnd+6) - camY;
+      cx.fillStyle = PAL.woodDk;
+      cx.fillRect(px(wEnd+6-camX), px(topY+6), 4, EXIT_LIP);
+    }
   }
 }
 
@@ -1961,55 +2336,78 @@ function panel(x,y,w,h){
 /* =====================================================================
    PANTALLAS
    ===================================================================== */
+/* =====================================================================
+   HUD — vuelve a dibujarse DENTRO del canvas (ya no hay franjas HTML
+   separadas): con el horizonte ahora bien abajo en pantalla (~75% cielo),
+   hay mucho espacio arriba para todo el HUD de estado, igual que antes de
+   sacarlo a HTML, solo que reposicionado para vivir cómodo en esa franja
+   de cielo en vez de pegado al borde superior del mundo de juego.
+   ===================================================================== */
 function drawHUD(){
   const dist = Math.floor(pig.best/4);
-  panel(6,6,150,40);
-  text('DIST '+dist+'m', 14, 22, 8, PAL.cream, false);
-  text('PTS  '+pig.points, 14, 38, 8, PAL.gold, false);
-  // velocidad — el relleno nunca se sale del recuadro (0 a 1)
-  panel(W-118,6,112,26);
-  const spd = pig.grounded ? pig.spd : Math.hypot(pig.vx,pig.vy);
-  const frac = Math.max(0, Math.min(1, spd/MAXSPD));
-  cx.fillStyle = PAL.woodDk; cx.fillRect(W-110,14,96,10);
-  cx.fillStyle = frac>0.75?PAL.gold:(frac>0.4?PAL.carrot:PAL.grass);
-  cx.fillRect(W-110,14,px(96*frac),10);
-  text('VEL', W-88, 12, 6, PAL.cream, false);
-  // energía — barra central arriba, parpadea en rojo si está muy baja
+  // ---- sección única delimitada: un solo panel arriba con TODOS los
+  // datos de estado (dist/pts/bioma/vel/energía), en vez de 3 paneles
+  // sueltos como antes. Texto más grande y legible (10-11px en vez de
+  // 5-9px), como pide una UI táctil real.
+  const padX = 10, padY = 8;
+  const hudW = W - padX*2;
+  const hudY = H*0.012;
+  const rowH = H*0.05;
+  const row1Y = hudY + padY + rowH*0.55;
+  const row2Y = hudY + padY + rowH*1.55;
+  const hudH = padY*2 + rowH*2;
+  panel(padX, hudY, hudW, hudH);
+  const innerL = padX + 12, innerR = W - padX - 12;
+  // fila 1: distancia (izq) + bioma (centro) + record (der, si existe)
+  text('DIST '+dist+'m', innerL, row1Y, 10, PAL.cream, false);
+  text(BIOMES[pig.bio].name, W/2, row1Y, 10, PAL.gold);
+  if(records.length){
+    const rtxt = 'REC '+records[0].total;
+    cx.font = '9px "Press Start 2P", monospace';
+    text(rtxt, innerR - cx.measureText(rtxt).width, row1Y, 9, PAL.cream, false);
+  }
+  // fila 2: puntos (izq) + barra de energía (centro) + barra de velocidad (der)
+  text('PTS '+pig.points, innerL, row2Y, 10, PAL.gold, false);
   const eFrac = Math.max(0, Math.min(1, pig.energy/100));
-  const barW = 130, barX = W/2-barW/2;
-  panel(barX-6, 6, barW+12, 20);
-  cx.fillStyle = PAL.woodDk; cx.fillRect(barX, 12, barW, 8);
+  const barW = W*0.24, barX = W/2 - barW/2, barY = row2Y - 7;
+  cx.fillStyle = PAL.woodDk; cx.fillRect(barX, barY, barW, 12);
   const low = eFrac < 0.25;
   const eCol = low ? (((tGlobal*6)|0)%2===0 ? PAL.red : PAL.gold) : (eFrac>0.55?PAL.grass:PAL.carrot);
-  cx.fillStyle = eCol; cx.fillRect(barX, 12, px(barW*eFrac), 8);
-  cx.strokeStyle = PAL.cream; cx.lineWidth=1; cx.strokeRect(barX+.5,11.5,barW,9);
-  text('ENERGÍA', W/2, 24, 5, low?PAL.red:PAL.cream);
-  if(pig.combo >= 2) text('COMBO x'+pig.combo, W/2, 42, 9, PAL.gold);
-  if(pig.waterTurbo && (tGlobal*8|0)%2===0) text('¡TURBO!', W/2, 42, 9, '#6fc7e0');
-  if(records.length) text('RECORD: '+records[0].total+' ('+records[0].name+')', W/2, H-8, 6, PAL.cream);
-  // bioma actual y distancia a la próxima rampa
-  text(BIOMES[pig.bio].name, 14, H-10, 6, PAL.gold, false);
+  cx.fillStyle = eCol; cx.fillRect(barX, barY, px(barW*eFrac), 12);
+  cx.strokeStyle = PAL.cream; cx.lineWidth=1; cx.strokeRect(barX+.5, barY+.5, barW, 11);
+  const vBarW = W*0.16, vBarX = innerR - vBarW, vBarY = row2Y - 7;
+  const spd = pig.grounded ? pig.spd : Math.hypot(pig.vx,pig.vy);
+  const frac = Math.max(0, Math.min(1, spd/MAXSPD));
+  cx.fillStyle = PAL.woodDk; cx.fillRect(vBarX, vBarY, vBarW, 12);
+  cx.fillStyle = frac>0.75?PAL.gold:(frac>0.4?PAL.carrot:PAL.grass);
+  cx.fillRect(vBarX, vBarY, px(vBarW*frac), 12);
+  cx.strokeStyle = PAL.cream; cx.lineWidth=1; cx.strokeRect(vBarX+.5, vBarY+.5, vBarW, 11);
+
+  // ---- avisos transitorios, debajo del panel (combo/turbo/rampa/agua) ----
+  const noticeY = hudY + hudH + H*0.045;
+  if(pig.combo >= 2) text('COMBO x'+pig.combo, W/2, noticeY, 10, PAL.gold);
+  if(pig.waterTurbo && (tGlobal*8|0)%2===0) text('¡TURBO!', W/2, noticeY, 10, '#6fc7e0');
   if(pig.mode==='HILLS'){
     const nextR = (Math.floor(pig.x / BIOME_SPAN) + 1) * BIOME_SPAN;
-    text('RAMPA EN '+(((nextR-pig.x)/4)|0)+'m', W-8-cx.measureText('RAMPA EN 0000m').width, H-10, 6, PAL.cream, false);
+    text('RAMPA EN '+(((nextR-pig.x)/4)|0)+'m', W/2, noticeY + H*0.04, 8, PAL.cream);
   } else {
-    text('¡VUELO!', W/2, 56, 9, PAL.gold);
+    text('¡VUELO!', W/2, noticeY, 10, PAL.gold);
     const wz = waterZoneAt(pig.x);
     if(wz){
       const wleft = Math.max(0, ((wz.waterEnd - pig.x)/4)|0);
-      text('¡AGUA ABAJO! ('+wleft+'m)', W/2, 66, 6, '#6fc7e0');
+      text('¡AGUA ABAJO! ('+wleft+'m)', W/2, noticeY + H*0.04, 8, '#6fc7e0');
     } else {
-      text('TIERRA FIRME: PUEDES ATERRIZAR', W/2, 66, 6, PAL.grass);
+      text('TIERRA FIRME: PUEDES ATERRIZAR', W/2, noticeY + H*0.04, 8, PAL.grass);
     }
   }
   // instrucción breve al inicio (fuera del tutorial, que tiene sus propios textos guionados)
   if(!tutorialActive){
     if(pig.x < 900 && state===ST.PLAY && pig.mode==='HILLS')
-      text('MANTÉN PRESIONADO = PICADA', W/2, 70, 7, PAL.cream);
+      text('MANTÉN PRESIONADO = PICADA', W/2, noticeY + H*0.08, 8, PAL.cream);
     if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 2.5)
-      text('PRESIONA PARA MANTENER LAS ALAS ABIERTAS', W/2, 78, 7, PAL.cream);
+      text('PRESIONA PARA MANTENER LAS ALAS ABIERTAS', W/2, noticeY + H*0.08, 8, PAL.cream);
     if(pig.mode==='FLIGHT' && pig.flightT < FLIGHT_GLIDE + 2.5)
-      text('SUELTA PARA BAJAR', W/2, 88, 7, PAL.cream);
+      text('SUELTA PARA BAJAR', W/2, noticeY + H*0.11, 8, PAL.cream);
   }
   if(tutorialActive) drawTutorialHUD();
 }
@@ -2023,18 +2421,19 @@ function drawTutorialHUD(){
   if(tutFrozen){
     const blink = (tGlobal*3|0)%2===0;
     const urgent = tutFrozenT >= TUT_FROZEN_GRACE;
-    panel(W/2-140, H/2-24, 280, 48);
+    panel(W/2-172, H/2-34, 344, 68);
     if(!urgent){
-      text('AQUÍ DEBES SOLTAR', W/2, H/2-3, 9, PAL.gold);
-      text('PARA APROVECHAR LA VELOCIDAD', W/2, H/2+13, 7, PAL.cream);
+      text('AQUÍ DEBES SOLTAR', W/2, H/2-8, 12, PAL.gold);
+      text('PARA APROVECHAR LA VELOCIDAD', W/2, H/2+14, 8, PAL.cream);
     } else {
-      text('DEJA DE TOCAR LA PANTALLA', W/2, H/2+2, blink?9:8, PAL.red);
+      text('DEJA DE TOCAR', W/2, H/2-8, blink?12:11, PAL.red);
+      text('LA PANTALLA', W/2, H/2+14, blink?12:11, PAL.red);
     }
   }
   // solo antes del freeze (INTRO) queda instrucción persistente en pantalla;
   // de ahí en adelante el tutorial ya no interrumpe con más texto
   if(tutStep === TUT_STEPS.INTRO)
-    text('MANTÉN PRESIONADO PARA CORRER', W/2, 70, 7, PAL.cream);
+    text('MANTÉN PRESIONADO PARA CORRER', W/2, H*0.19, 9, PAL.cream);
 }
 
 function drawTitle(){
@@ -2047,30 +2446,37 @@ function drawTitle(){
   // logo de título: PNG con el cerdo y el rótulo "CERDO ICARIO" ya
   // integrado (ver TITLE_LOGO); reemplaza el panel+texto dibujado por
   // canvas que había antes. Se centra en el ancho, cuadrado, ocupando el
-  // hueco libre por arriba de "TOCA PARA VOLAR"
+  // hueco libre por arriba de "TOCA PARA VOLAR". Posiciones en FRACCIÓN
+  // de H (H ahora es dinámico, distinto por pantalla) en vez de píxeles
+  // fijos, para que este layout se adapte solo a cualquier alto de canvas.
   const bob = Math.sin(tGlobal*1.8)*3;
   if(TITLE_LOGO.complete && TITLE_LOGO.naturalWidth > 0){
-    const logoH = 132, logoW = logoH * TITLE_LOGO.naturalWidth/TITLE_LOGO.naturalHeight;
-    cx.drawImage(TITLE_LOGO, px(W/2 - logoW/2), px(8+bob), logoW, logoH);
+    const logoH = H*0.317, logoW = logoH * TITLE_LOGO.naturalWidth/TITLE_LOGO.naturalHeight;
+    cx.drawImage(TITLE_LOGO, px(W/2 - logoW/2), px(H*0.15+bob), logoW, logoH);
   }
 
   if((tGlobal*1.6|0)%2===0)
-    text('TOCA PARA VOLAR', W/2, 152, 9, PAL.cream);
+    text('TOCA PARA VOLAR', W/2, H*0.465, 9, PAL.cream);
 
-  panel(W/2-160, 186, 320, 66);
-  text('TOP 3 MUNDIAL', W/2, 200, 7, PAL.gold);
+  // hueco entre "TOCA PARA VOLAR" y este panel: ahí van apilados los
+  // botones RANKING/TUTORIAL (ver positionOverlayBtns) — botones táctiles
+  // de 48px reales necesitan bastante más aire que antes, así que el panel
+  // se corrió más abajo para dejarles sitio sin encimarse.
+  panel(W/2-165, H*0.685, 330, H*0.205);
+  text('TOP 3 MUNDIAL', W/2, H*0.72, 9, PAL.gold);
   if(recordsLoading){
-    text('Cargando ranking...', W/2, 222, 6, PAL.cream);
+    text('Cargando ranking...', W/2, H*0.7767, 8, PAL.cream);
   } else if(records.length === 0){
-    text('Aún no hay cerdos voladores. ¡Sé el primero!', W/2, 222, 6, PAL.cream);
+    text('Aún no hay cerdos voladores.', W/2, H*0.77, 7, PAL.cream);
+    text('¡Sé el primero!', W/2, H*0.7967, 7, PAL.cream);
   } else {
     for(let i=0;i<Math.min(3,records.length);i++){
-      const r = records[i], y = 214 + i*13;
+      const r = records[i], y = H*0.76 + i*(H*0.0417);
       const col = i===0?PAL.gold:(i===1?'#cfd4e0':'#d08a4a');
-      text((i+1)+'.', W/2-124, y, 6, col, false);
-      flagText(countryToFlag(r.country), W/2-104, y+4, 9, false);
-      text(r.name, W/2-86, y, 6, col, false);
-      text(''+r.total, W/2+124-cx.measureText(''+r.total).width, y, 6, col, false);
+      text((i+1)+'.', W/2-128, y, 8, col, false);
+      flagText(countryToFlag(r.country), W/2-104, y+4, 11, false);
+      text(r.name, W/2-84, y, 8, col, false);
+      text(''+r.total, W/2+128-cx.measureText(''+r.total).width, y, 8, col, false);
     }
   }
   text('v'+GAME_VERSION, 8, H-8, 5, PAL.pinkHi, false);
@@ -2082,30 +2488,57 @@ function drawTutorialIntro(){
   const roofY = groundY(BARN_X) - camY - 50;
   cx.drawImage(PIG_RUN1, 174, px(roofY - 14), 38, 26);
 
-  panel(W/2-190, 22, 380, 208);
-  text('CÓMO VOLAR', W/2, 40, 10, PAL.gold);
-  text('MANTÉN PRESIONADO = CORRES (CONSUME ENERGÍA)', W/2, 60, 6, PAL.cream);
-  text('CORRE EN BAJADAS PARA TOMAR IMPULSO', W/2, 74, 6, PAL.cream);
-  text('CORRER EN SUBIDAS FRENA Y TE DEVUELVE:', W/2, 88, 6, PAL.cream);
-  text('ÚSALO SI QUEDAS ATORADO ENTRE COLINAS', W/2, 102, 6, PAL.cream);
-  text('COME PARA RECUPERAR ENERGÍA', W/2, 122, 6, PAL.cream);
-  text('SOBRE AGUA: MANTÉN PRESIONADO = ALETEA', W/2, 142, 6, PAL.cream);
-  text('SUELTA = BAJA', W/2, 156, 6, PAL.cream);
-  if((tGlobal*1.6|0)%2===0) text('TOCA PARA EMPEZAR', W/2, 186, 8, PAL.gold);
+  // instrucciones agrupadas por tema (EN TIERRA / EN EL AIRE) con un
+  // encabezado dorado cada una, en vez de 7 líneas sueltas del mismo
+  // tamaño: así se leen como dos bloques cortos y no como un muro de texto.
+  // Posiciones en fracción de H (H es dinámico) para adaptarse solo.
+  const pX = W/2-196, pW = 392;
+  panel(pX, H*0.14, pW, H*0.50);
+  text('CÓMO VOLAR', W/2, H*0.195, 13, PAL.gold);
+
+  const L = pX + 22;              // margen izquierdo del texto de cada punto
+  const bullet = (y, s) => {      // viñeta dorada + texto alineados a la izquierda
+    cx.fillStyle = PAL.gold;
+    cx.fillRect(px(L-12), px(y-4), 4, 4);
+    text(s, L, y, 8, PAL.cream, false);
+  };
+
+  text('EN TIERRA', L-12, H*0.255, 10, PAL.grassHi, false);
+  bullet(H*0.298, 'MANTÉN PRESIONADO = CORRER');
+  bullet(H*0.333, 'CORRE EN BAJADAS PARA IMPULSO');
+  bullet(H*0.368, 'CORRER EN SUBIDA FRENA Y TE');
+  bullet(H*0.398, 'DEVUELVE: ÚSALO SI TE ATORAS');
+  bullet(H*0.433, 'COME PARA RECUPERAR ENERGÍA');
+
+  text('EN EL AIRE', L-12, H*0.495, 10, PAL.grassHi, false);
+  bullet(H*0.538, 'MANTÉN PRESIONADO = ALETEAR');
+  bullet(H*0.573, 'SUELTA = BAJAR');
+
+  if((tGlobal*1.6|0)%2===0) text('TOCA PARA EMPEZAR', W/2, H*0.68, 11, PAL.gold);
+}
+
+// logo del juego, chico, arriba del todo — se usa en las pantallas de
+// lanzamiento y de resultados, que quedaban muy vacías arriba
+function drawTopLogo(){
+  if(!(TITLE_LOGO.complete && TITLE_LOGO.naturalWidth > 0)) return;
+  const logoH = H*0.135, logoW = logoH * TITLE_LOGO.naturalWidth/TITLE_LOGO.naturalHeight;
+  cx.drawImage(TITLE_LOGO, px(W/2 - logoW/2), px(H*0.025), logoW, logoH);
 }
 
 function drawLaunch(){
   drawSky(); drawParallax(); drawTerrain(); drawItems(); drawFarmScene(); drawPig();
+  drawTopLogo();
+  // texto más grande y en dos ideas separadas (TOCA / MANTÉN), en vez de
+  // una frase larga partida a la mitad en dos renglones de 7px
+  const panelY = H*0.175;
+  panel(W/2-178, panelY, 356, H*0.145);
+  text(playerName, W/2, H*0.208, 11, PAL.gold);
   if(tutorialActive){
-    panel(W/2-160, 30, 320, 66);
-    text(playerName, W/2, 48, 9, PAL.gold);
-    text('PRESIONA LA PANTALLA PARA SALTAR,', W/2, 66, 7, PAL.cream);
-    text('NO SUELTES PARA APROVECHAR LA BAJADA', W/2, 80, 7, PAL.cream);
+    text('TOCA = SALTAR', W/2, H*0.248, 9, PAL.cream);
+    text('NO SUELTES EN LA BAJADA', W/2, H*0.285, 9, PAL.cream);
   } else {
-    panel(W/2-160, 30, 320, 66);
-    text(playerName, W/2, 48, 9, PAL.gold);
-    text('PRESIONA PANTALLA PARA SALTAR, MANTÉN', W/2, 66, 7, PAL.cream);
-    text('PRESIONADO PARA CORRER Y TOMAR IMPULSO', W/2, 80, 7, PAL.cream);
+    text('TOCA = SALTAR', W/2, H*0.248, 9, PAL.cream);
+    text('MANTÉN = CORRER Y TOMAR IMPULSO', W/2, H*0.285, 9, PAL.cream);
   }
 }
 
@@ -2113,62 +2546,63 @@ function drawDone(dt){
   drawSky(); drawParallax();
   drawTerrain();
   drawFarmScene(); drawPig(); drawParticles(dt);
+  drawTopLogo();
   resultT += dt; statT += dt;
   const dist = Math.floor(pig.best/4);
   const total = dist + pig.points;
   const show = Math.min(1, resultT/0.5);
 
-  panel(W/2-150, 30, 300, 148);
-  if(pig.deathCause==='agua') text('¡CAYÓ AL AGUA!', W/2, 52, 9, PAL.red);
-  else if(pig.deathCause==='choque' || pig.deathCause==='agua-choque') text('¡SE ESTRELLÓ EN PLENO VUELO!', W/2, 52, 8, PAL.red);
-  else text('¡SE QUEDÓ SIN ENERGÍA!', W/2, 52, 9, PAL.red);
+  panel(W/2-150, H*0.1833, 300, H*0.2467);
+  if(pig.deathCause==='agua') text('¡CAYÓ AL AGUA!', W/2, H*0.22, 9, PAL.red);
+  else if(pig.deathCause==='choque' || pig.deathCause==='agua-choque') text('¡SE ESTRELLÓ EN PLENO VUELO!', W/2, H*0.22, 8, PAL.red);
+  else text('¡SE QUEDÓ SIN ENERGÍA!', W/2, H*0.22, 9, PAL.red);
   // contadores animados
   const cDist = Math.floor(dist * Math.min(1, statT/1.2));
   const cPts  = Math.floor(pig.points * Math.min(1, Math.max(0,(statT-0.6))/1.2));
   const cTot  = Math.floor(total * Math.min(1, Math.max(0,(statT-1.4))/1.0));
-  text('DISTANCIA', W/2-70, 80, 7, PAL.cream);  text(cDist+'m', W/2+70, 80, 9, PAL.pinkHi);
-  text('PUNTOS',    W/2-70, 100, 7, PAL.cream); text(''+cPts,  W/2+70, 100, 9, PAL.carrot);
-  cx.fillStyle = PAL.gold; cx.fillRect(W/2-120, 110, 240, 1);
-  text('TOTAL',     W/2-70, 128, 8, PAL.gold);  text(''+cTot,  W/2+70, 128, 12, PAL.gold);
+  text('DISTANCIA', W/2-70, H*0.2667, 7, PAL.cream);  text(cDist+'m', W/2+70, H*0.2667, 9, PAL.pinkHi);
+  text('PUNTOS',    W/2-70, H*0.30, 7, PAL.cream); text(''+cPts,  W/2+70, H*0.30, 9, PAL.carrot);
+  cx.fillStyle = PAL.gold; cx.fillRect(W/2-120, H*0.3167, 240, 1);
+  text('TOTAL',     W/2-70, H*0.3467, 8, PAL.gold);  text(''+cTot,  W/2+70, H*0.3467, 12, PAL.gold);
 
   if(newRecord && statT > 2.4 && (tGlobal*2|0)%2===0)
-    text('★ ¡NUEVO RÉCORD REAL! ★', W/2, 150, 9, PAL.gold);
-  if(statT > 2.4){
-    text('TOCA: NUEVO LANZAMIENTO', W/2, 168, 7, PAL.cream);
-  }
+    text('★ ¡NUEVO RÉCORD REAL! ★', W/2, H*0.3833, 9, PAL.gold);
+  // ya no hace falta anunciar "toca para reiniciar": hay un botón
+  // REINTENTAR explícito justo debajo (tocar la pantalla sigue funcionando)
 }
 
 function drawRecords(){
   drawSky(); drawParallax(); camY = 40; drawTerrain();
-  panel(W/2-160, 14, 320, 240);
-  text('SALÓN DE LA FAMA', W/2, 32, 11, PAL.gold);
-  text('RANKING MUNDIAL TOP 10', W/2, 46, 6, PAL.pinkHi);
+  panel(W/2-172, H*0.1167, 344, H*0.74);
+  text('SALÓN DE LA FAMA', W/2, H*0.1633, 12, PAL.gold);
+  text('RANKING MUNDIAL TOP 10', W/2, H*0.195, 7, PAL.pinkHi);
   if(recordsLoading){
-    text('Cargando ranking...', W/2, 130, 7, PAL.cream);
+    text('Cargando ranking...', W/2, H*0.4333, 8, PAL.cream);
   } else if(records.length === 0){
-    text('Aún no hay cerdos voladores...', W/2, 120, 6, PAL.cream);
-    text('¡Sé el primero!', W/2, 136, 7, PAL.gold);
+    text('Aún no hay cerdos voladores...', W/2, H*0.4167, 7, PAL.cream);
+    text('¡Sé el primero!', W/2, H*0.4467, 8, PAL.gold);
   } else {
     // columnas por posición X fija, alineadas con las filas de abajo (no
     // se puede alinear a espacios porque la fuente no es monoespaciada)
-    const cPos = W/2-146, cFlag = W/2-124, cName = W/2-104, cDist = W/2+22, cPts = W/2+68, cTotal = W/2+140;
-    text('POS', cPos, 58, 5, PAL.grassHi, false);
-    text('NOMBRE', cName, 58, 5, PAL.grassHi, false);
-    text('DIST', cDist, 58, 5, PAL.grassHi, false);
-    text('PTS', cPts, 58, 5, PAL.grassHi, false);
-    text('TOTAL', cTotal-cx.measureText('TOTAL').width, 58, 5, PAL.grassHi, false);
+    const cPos = W/2-156, cFlag = W/2-131, cName = W/2-108, cDist = W/2+18, cPts = W/2+70, cTotal = W/2+150;
+    const headerY = H*0.2333;
+    text('POS', cPos, headerY, 6, PAL.grassHi, false);
+    text('NOMBRE', cName, headerY, 6, PAL.grassHi, false);
+    text('DIST', cDist, headerY, 6, PAL.grassHi, false);
+    text('PTS', cPts, headerY, 6, PAL.grassHi, false);
+    text('TOTAL', cTotal-cx.measureText('TOTAL').width, headerY, 6, PAL.grassHi, false);
     for(let i=0;i<records.length;i++){
-      const r = records[i], y = 70 + i*17;
+      const r = records[i], y = H*0.2633 + i*(H*0.0517);
       const col = i===0?PAL.gold:(i===1?'#cfd4e0':(i===2?'#d08a4a':PAL.cream));
-      text((i+1)+'.', cPos, y, 7, col, false);
-      flagText(countryToFlag(r.country), cFlag, y+4, 10, false);
-      text(r.name, cName, y, 7, col, false);
-      text(r.dist+'m', cDist, y, 6, col, false);
-      text('+'+r.pts, cPts, y, 6, col, false);
-      text(''+r.total, cTotal-cx.measureText(''+r.total).width, y, 7, col, false);
+      text((i+1)+'.', cPos, y, 8, col, false);
+      flagText(countryToFlag(r.country), cFlag, y+4, 12, false);
+      text(r.name, cName, y, 8, col, false);
+      text(r.dist+'m', cDist, y, 7, col, false);
+      text('+'+r.pts, cPts, y, 7, col, false);
+      text(''+r.total, cTotal-cx.measureText(''+r.total).width, y, 8, col, false);
     }
   }
-  text('TOCA PARA VOLVER', W/2, 262, 7, PAL.cream);
+  text('TOCA PARA VOLVER', W/2, H*0.815, 8, PAL.cream);
 }
 
 /* =====================================================================
@@ -2207,12 +2641,15 @@ function loop(now){
   // guardar puntuación: solo en resultados, y solo mientras esta partida no
   // se haya guardado ya (evita mostrarlo de nuevo tras confirmar el nombre)
   const saveScoreShown = state===ST.DONE && statT > 2.4 && !recordSaved;
-  if(rankingShown !== rankingBtnShownPrev || tutorialBtnShown !== tutorialBtnShownPrev || saveScoreShown !== saveScoreBtnShownPrev || state !== overlayBtnsStatePrev){
-    rankingBtnShownPrev = rankingShown; tutorialBtnShownPrev = tutorialBtnShown; saveScoreBtnShownPrev = saveScoreShown; overlayBtnsStatePrev = state;
+  // reintentar: en resultados, siempre (se haya guardado o no la puntuación)
+  const retryShown = state===ST.DONE && statT > 2.4;
+  if(rankingShown !== rankingBtnShownPrev || tutorialBtnShown !== tutorialBtnShownPrev || saveScoreShown !== saveScoreBtnShownPrev || retryShown !== retryBtnShownPrev || state !== overlayBtnsStatePrev){
+    rankingBtnShownPrev = rankingShown; tutorialBtnShownPrev = tutorialBtnShown; saveScoreBtnShownPrev = saveScoreShown; retryBtnShownPrev = retryShown; overlayBtnsStatePrev = state;
     rankingBtn.classList.toggle('show', rankingShown);
     tutorialBtn.classList.toggle('show', tutorialBtnShown);
     saveScoreBtn.classList.toggle('show', saveScoreShown);
-    if(rankingShown || tutorialBtnShown || saveScoreShown) positionOverlayBtns();
+    retryBtn.classList.toggle('show', retryShown);
+    if(rankingShown || tutorialBtnShown || saveScoreShown || retryShown) positionOverlayBtns();
   }
 
   switch(state){
@@ -2345,20 +2782,21 @@ saveScoreBtn.addEventListener('click', e=>{
   e.stopPropagation();
   if(state===ST.DONE && statT > 2.4 && !recordSaved) openSaveScore();
 });
+// reintentar: misma acción que tocar la pantalla en resultados, pero
+// explícita — tocar la pantalla para reiniciar no era nada evidente
+const retryBtn = document.getElementById('retryBtn');
+retryBtn.addEventListener('click', e=>{
+  e.stopPropagation();
+  if(state===ST.DONE && statT > 2.4){ sfx.ui(); startRun(); }
+});
 function positionOverlayBtns(){
   const r = cv.getBoundingClientRect();
-  const s = r.width / W; // factor de escala real del canvas en pantalla
-  // el padding CSS es fijo y no escala solo con el canvas: en pantallas
-  // chicas (s<1) eso los volvía más anchos que el hueco disponible. Se
-  // escala fuente Y padding juntos, a tamaño de HUD (chico, como el resto
-  // del texto del juego) en vez del tamaño de botón "real" que tenían antes.
-  const fs = Math.max(5, 6*s);
-  const padV = Math.max(2, 3*s), padH = Math.max(6, 10*s);
-  for(const b of [rankingBtn, tutorialBtn]){
-    b.style.fontSize = fs + 'px';
-    b.style.padding = padV+'px '+padH+'px';
-    b.style.width = 'auto'; // se resetea antes de medir, si no arrastra un ancho fijo de una pasada anterior
-  }
+  // el tamaño (fuente/padding/min-height) ya es fijo en CSS — 48px de alto
+  // mínimo, fuente 13px, el estándar táctil real — esta función SOLO
+  // calcula posiciones, nunca reescala el botón según el zoom del canvas
+  // (antes lo hacía, y por eso quedaban ilegibles en pantallas chicas).
+  rankingBtn.style.width = 'auto';
+  tutorialBtn.style.width = 'auto';
   // "🏆 RANKING" y "▶ TUTORIAL" tienen distinto largo de texto, así que sin
   // esto cada botón se centraba con SU PROPIO ancho y quedaban con bordes
   // desalineados entre sí (se veían "descentrados" como par, aunque cada
@@ -2367,29 +2805,33 @@ function positionOverlayBtns(){
   const maxW = Math.max(rankingBtn.offsetWidth, tutorialBtn.offsetWidth);
   rankingBtn.style.width = maxW + 'px';
   tutorialBtn.style.width = maxW + 'px';
+  // sV: escala vertical real (H es dinámico, distinto por pantalla) — los
+  // Y de este layout están en fracción de H, así que se posicionan con sV
+  const sV = r.height / H;
   if(state === ST.DONE){
-    // en resultados: GUARDAR PUNTUACIÓN (si aún no se guardó) y RANKING,
-    // apilados bajo "TOCA: NUEVO LANZAMIENTO" (y=168) — mismo patrón que
-    // el título, cada botón mide su propio ancho (textos bien distintos)
-    saveScoreBtn.style.fontSize = fs + 'px';
-    saveScoreBtn.style.padding = padV+'px '+padH+'px';
-    const rowGap = 2*s;
-    let rowY = r.top + 184*s;
+    // en resultados, apilados bajo "TOCA: NUEVO LANZAMIENTO" (y=H*0.4133):
+    // GUARDAR PUNTUACIÓN (si aún no se guardó), REINTENTAR y RANKING —
+    // cada uno mide su propio ancho, igual que en el título
+    const rowGap = 10;
+    let rowY = r.top + H*0.44*sV;
     if(saveScoreBtnShownPrev){
       saveScoreBtn.style.top = rowY + 'px';
       saveScoreBtn.style.left = (r.left + r.width/2 - saveScoreBtn.offsetWidth/2) + 'px';
       rowY += saveScoreBtn.offsetHeight + rowGap;
     }
+    if(retryBtnShownPrev){
+      retryBtn.style.top = rowY + 'px';
+      retryBtn.style.left = (r.left + r.width/2 - retryBtn.offsetWidth/2) + 'px';
+      rowY += retryBtn.offsetHeight + rowGap;
+    }
     rankingBtn.style.top = rowY + 'px';
     rankingBtn.style.left = (r.left + r.width/2 - rankingBtn.offsetWidth/2) + 'px';
   } else {
     // en el título, apilados uno sobre el otro (mismo ancho, mismo eje
-    // central) bajo "TOCA PARA VOLAR" (y=152) y antes del panel del
-    // ranking (que arranca en y=186): solo 34px lógicos de hueco para las
-    // dos filas, así que van pegados al límite de arriba y con el gap más
-    // chico posible entre ellos
-    const rowY = r.top + 156*s;
-    const rowGap = 2*s;
+    // central) bajo "TOCA PARA VOLAR" (y=H*0.465) y antes del panel
+    // del ranking (que arranca en y=H*0.685)
+    const rowY = r.top + H*0.49*sV;
+    const rowGap = 10;
     const left = r.left + r.width/2 - maxW/2;
     rankingBtn.style.top = rowY + 'px';
     rankingBtn.style.left = left + 'px';
@@ -2436,6 +2878,7 @@ addEventListener('mouseup', release);
 cv.addEventListener('touchstart', e=>{ e.preventDefault(); press(); }, {passive:false});
 cv.addEventListener('touchend', e=>{ e.preventDefault(); release(); }, {passive:false});
 addEventListener('touchend', release);
+
 addEventListener('keydown', e=>{
   if(overlay.style.display==='flex' || settingsOverlay.classList.contains('show')) return;
   if(e.code==='Space'){ e.preventDefault(); if(!pressed) press(); }
